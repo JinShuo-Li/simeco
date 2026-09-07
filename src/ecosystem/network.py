@@ -141,4 +141,13 @@ class TinyMLP:
 
     @classmethod
     def from_dict(cls, data: dict) -> "TinyMLP":
-        return cls(**data)
+        values = dict(data)
+        values["w1"] = [row[:] for row in values["w1"]]
+        values["b1"] = values["b1"][:]
+        values["w2"] = [row[:] for row in values["w2"]]
+        values["b2"] = values["b2"][:]
+        if values.get("last_observation") is not None:
+            values["last_observation"] = values["last_observation"][:]
+        if values.get("last_probabilities") is not None:
+            values["last_probabilities"] = values["last_probabilities"][:]
+        return cls(**values)
