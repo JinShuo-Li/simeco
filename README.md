@@ -1,9 +1,11 @@
-# Living Ecosystem
+# simeco V2 — Instinct / Learning Separation
 
 A spatial predator–prey simulation designed to be watched over SSH. Plants grow
 across a toroidal landscape, herbivores graze and reproduce, and predators hunt.
-Every animal owns a separate 16–10–5 MLP, learns during its life, and gives an
-independently copied and mutated version of that network to its offspring.
+Every animal owns an `InstinctController`, an individual 16–10–5
+`AdaptivePolicy`, and an `ActionArbiter`. Instinct supplies survival behavior from
+birth; the learned network contributes a bounded refinement and is copied with
+mutation into offspring.
 
 There are no target populations, emergency births, carrying-capacity controllers,
 or extinction prevention rules. Population balance comes from plant regrowth,
@@ -50,7 +52,7 @@ Start the TUI from an existing state or save automatically on exit:
 ```bash
 ecosystem tui --load snapshots/latest.eco.gz
 ecosystem tui --snapshot snapshots/night-run.eco.gz --save-on-exit
-ecosystem tui --no-learning
+ecosystem tui --instinct-only
 ```
 
 ## Fast runs and experiments
@@ -64,21 +66,21 @@ ecosystem run --steps 10000 --seed 3 \
 ecosystem run --load snapshots/seed3-10000.eco.gz --steps 2000 \
   --snapshot snapshots/seed3-12000.eco.gz
 
-ecosystem run --steps 3000 --seed 3 --no-learning
+ecosystem run --steps 10000 --seed 3 --instinct-only
 ```
 
-Run paired learning/no-learning trials with the same seeds:
+Run paired instinct-only and instinct+learning trials with the same seeds:
 
 ```bash
-ecosystem compare --steps 3000 --seed 3 --replicates 3 \
+ecosystem compare --steps 5000 --seed 3 --replicates 3 \
   --output runs/comparison.json
 ```
 
 The summary includes direct behavioral probes. `prey_flee_response` is the mean
-probability assigned to the correct opposite movement under four canonical
-directional predator cues. `predator_pursuit_response` is the corresponding mean
-probability of moving toward prey. These make policy changes visible even when
-population counts differ between runs.
+probability assigned by the complete controller to the correct opposite movement
+under four canonical predator cues. `predator_pursuit_response` is the probability
+of pursuing directional prey. Food per herbivore action and hunts per 1,000
+predator actions measure realized efficiency.
 
 Inspect a snapshot or one animal. `--weights` exposes the complete MLP for later
 analysis:
@@ -97,11 +99,13 @@ Herbivores automatically graze after moving; predators can capture a co-located
 herbivore with a configurable probability. Failed captures reward the escaping
 prey and penalize the predator.
 
-Each tick, animals pay an idle or movement cost plus a local crowding cost. Food
+Each tick, animals pay an idle or movement cost plus a local crowding cost. Nearby
+predators also pay interference costs when competing for the same local prey. Food
 becomes energy. Mature animals above a reproduction energy threshold may reproduce,
-paying energy to create the offspring. Animals die from starvation, predation, or
-old age. All rates and life histories are in `src/ecosystem/config.py` and are
-embedded into snapshots.
+paying energy to create the offspring. Eligible adults accumulate reproductive
+readiness instead of winning a per-tick birth lottery; readiness is consumed at
+birth. Animals die from starvation, predation, or old age. All rates and life
+histories are in `src/ecosystem/config.py` and are embedded into snapshots.
 
 The five actions are stay, north, east, south, and west. Feeding and reproduction
 are consequences of biological state rather than separate policy actions.
@@ -115,18 +119,37 @@ Each 16-value observation contains:
 
 Organisms cannot see global counts, future state, or target populations.
 
+## Controller architecture
+
+Each organism owns three separate controller objects:
+
+1. `InstinctController` produces fixed species-specific action preferences. A
+   herbivore rests to eat, seeks richer plant cells, and flees opposite a predator.
+   A predator follows prey signals and conserves energy when no prey is visible.
+   Energy, maturity, and reproductive readiness provide innate reproduction.
+2. `AdaptivePolicy` produces learned residual preferences. It is an independent
+   tanh MLP for every animal; no weights, optimizer state, or replay data are shared.
+3. `ActionArbiter` adds weighted instinct and adaptive preferences, applies a
+   temperature and 3.5% exploration, then samples one of stay/north/east/south/west.
+
+The arbiter weights instinct at `1.0` and the adaptive residual at `0.12`. Adaptive
+preferences are bounded to `[-1, 1]`, so learning can change ambiguous feeding,
+search, and energy decisions but cannot erase a strong innate escape or pursuit
+response. In instinct-only mode the adaptive weight is exactly zero.
+
 ## Learning and evolution
 
-`TinyMLP` is a dependency-free tanh network with a softmax action head. A new
-founder gets independently randomized weights. Action selection has 4% uniform
-exploration. After an action, a small immediate policy-gradient update reinforces
-or suppresses it relative to that individual's moving reward baseline. Negative
-surprises use a 1.8× learning rate, making danger and failed hunts matter quickly.
+`AdaptivePolicy` is a dependency-free tanh network. A new founder gets independently
+randomized weights. After arbitration, a small immediate policy-gradient update
+reinforces or suppresses the chosen residual relative to that individual's moving
+reward baseline. The gradient includes the arbiter mixing weight and residual
+bound. Negative surprises use a 1.8× learning rate.
 
-Rewards are local and survival-related: movement energy, food energy, reproduction,
-predator proximity and escape direction, prey pursuit direction, successful or
-failed capture, and starvation. This is intentionally simple enough to inspect;
-there is no replay buffer, shared optimizer, or species-wide policy.
+Rewards are outcome-oriented: energy cost, food energy, successful reproduction,
+surviving a tick, successful or failed capture, escape from a failed attack, and
+starvation. Directional flee and pursuit rewards from V1 are gone; that knowledge
+now lives entirely in `InstinctController`. There is no replay buffer, shared
+optimizer, or species-wide policy.
 
 An offspring starts with a deep copy of its parent's current weights and biases.
 Each parameter independently mutates with the configured probability and Gaussian
@@ -134,18 +157,19 @@ noise. Its reward baseline is partly inherited, while update counters and action
 memory start fresh. Thus lifetime learning can become inherited behavior, then
 selection and mutation can modify it across generations.
 
-`--no-learning` freezes within-life updates but retains individual networks,
-mutation, inheritance, and ecological selection. It is therefore a comparison of
-lifetime plasticity rather than a comparison against motionless agents.
+`--instinct-only` (with `--no-learning` retained as an alias) gives the adaptive
+network zero action influence and performs no updates. Individual networks are
+still inherited and mutated, allowing the same snapshot shape in both modes.
 
 ## Snapshots
 
-Snapshots are versioned gzip-compressed JSON. A snapshot records the tick, seed,
-learning flag, complete parameter configuration, plant grid, biological fields and
-lineage for every living animal, every animal's full MLP and learning baseline,
-metrics/history, ID allocator, pending action memory, and Python RNG state. Saving
-uses an atomic replace. A deterministic continuation test verifies that the
-original and restored simulations remain identical after further steps.
+V2 snapshots are versioned gzip-compressed JSON. A snapshot records the controller
+mode, tick, seed, configuration, plant grid, biological state and lineage, full
+adaptive parameters and learning baseline, instinct state, arbiter weights and last
+preferences, reproductive readiness, metrics/history, ID allocator, pending action
+memory, and Python RNG state. Saving uses an atomic replace. V1 snapshots migrate
+to the new controller objects on load. A deterministic continuation test verifies
+that the original and restored simulations remain identical after further steps.
 
 Because the payload is JSON inside gzip, analysis tools can inspect it without
 importing this project:
@@ -156,20 +180,20 @@ gzip -dc snapshots/seed3-10000.eco.gz | python -m json.tool | less
 
 ## Observed dynamics
 
-The tuned default seed is `3`. In a learning-enabled 10,000-step validation run,
-all trophic levels persisted: the sampled `(herbivore, predator, plant/cell)` state
-moved through `(39,5,6.5)` at step 1,000, `(43,12,5.0)` at 2,000,
-`(24,3,3.4)` at 6,000, `(32,10,6.9)` at 8,000, and `(56,6,5.2)` at 10,000.
-The run reached generation 40. This shows delayed grazing/resource waves alongside
-predator cycles rather than convergence to a fixed count.
+The critical instinct-only gate was run for 10,000 steps on seeds 3–5. All three
+trophic levels survived every run. Final herbivore/predator counts were `55/8`,
+`62/13`, and `52/6`; all continued to show resource and predator/prey
+oscillations. No learning updates occurred.
 
-The committed `experiments/learning_comparison.json` contains paired 3,000-step
-runs for seeds 3–5. Across those trials, learned predator pursuit response averaged
-about 0.38 versus 0.12 without learning. Learned prey escape response averaged
-about 0.28 versus 0.15 (about 0.22 if the extinct trial is omitted). Learned
-predators also spent far less time idle. Individual outcomes remain stochastic:
-one no-learning seed suffered complete collapse and some predator lineages became
-small. Use several seeds when drawing conclusions.
+The committed `experiments/v2_learning_comparison.json` contains paired 5,000-step
+runs for the same seeds. Both modes retained all three trophic levels at that
+horizon. Adaptive learning increased mean plant food obtained per herbivore action
+from `1.069` to `1.481` (about 38.5%) and herbivore reward per step from `41.23` to
+`51.74` (about 25.5%). Hunts per 1,000 predator actions rose from `5.32` to `5.67`
+(about 6.6%). The innate flee and pursuit probes stayed near `0.958` and `0.857` in
+both modes, demonstrating that learning refined outcomes without rediscovering or
+replacing core survival responses. Predator population and reward effects were
+mixed across seeds because increased hunting can also increase competition.
 
 ## Tests
 
@@ -178,10 +202,11 @@ conda activate eco
 python -m unittest discover -s tests -v
 ```
 
-Tests cover independent and mutated offspring parameters, reinforcement direction,
-observation shape, ecological events, deterministic snapshot continuation, and TUI
-sparkline rendering. The TUI can be smoke-tested on a headless host with a pseudo
-terminal:
+Tests cover innate flee/pursuit, zero adaptive influence and updates in instinct-only
+mode, independent and mutated offspring parameters, reinforcement direction,
+observation shape, ecological events, deterministic V2 snapshot continuation, and
+TUI sparkline rendering. The TUI can be smoke-tested on a headless host with a
+pseudo-terminal:
 
 ```bash
 script -q -c 'TERM=xterm ecosystem tui --seed 3 --max-steps 20' /tmp/eco-tui.log
