@@ -13,8 +13,8 @@ def summary(simulation: Simulation) -> dict:
     herbivores = simulation.species("herbivore")
     predators = simulation.species("predator")
     steps = max(1, simulation.step_count)
-    prey_actions = [sum(a.action_counts[i] for a in herbivores) for i in range(5)]
-    predator_actions = [sum(a.action_counts[i] for a in predators) for i in range(5)]
+    prey_actions = simulation.metrics.actions_herbivore
+    predator_actions = simulation.metrics.actions_predator
     neutral = [1.0, 0.5, 0.25, 0.5] + [0.0] * 12
     opposites = (3, 4, 1, 2)
     flee_response = 0.0
@@ -60,6 +60,12 @@ def summary(simulation: Simulation) -> dict:
         "max_generation": max((a.generation for a in simulation.organisms.values()), default=0),
         "prey_idle_fraction": round(prey_actions[0] / max(1, sum(prey_actions)), 4),
         "predator_idle_fraction": round(predator_actions[0] / max(1, sum(predator_actions)), 4),
+        "plant_food_per_herbivore_action": round(
+            simulation.metrics.plants_eaten / max(1, sum(prey_actions)), 4
+        ),
+        "hunts_per_1000_predator_actions": round(
+            1000.0 * simulation.metrics.hunts / max(1, sum(predator_actions)), 4
+        ),
         "prey_flee_response": round(flee_response, 4),
         "predator_pursuit_response": round(pursuit_response, 4),
     }

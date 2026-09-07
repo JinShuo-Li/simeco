@@ -27,6 +27,16 @@ class SimulationTests(unittest.TestCase):
         self.assertGreater(simulation.metrics.births_herbivore, 0)
         self.assertGreater(simulation.metrics.learning_updates, 0)
 
+    def test_instinct_only_has_no_adaptive_influence_or_updates(self):
+        simulation = Simulation(seed=8, learning=False)
+        founders = list(simulation.organisms.values())
+        weights = [[row[:] for row in animal.adaptive_policy.w1] for animal in founders]
+        simulation.run(10)
+        for animal, original in zip(founders, weights):
+            self.assertEqual(animal.adaptive_policy.updates, 0)
+            self.assertEqual(animal.adaptive_policy.w1, original)
+        self.assertEqual(simulation.metrics.learning_updates, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
