@@ -81,8 +81,10 @@ class InstinctController:
             target, target_forward, target_lateral = max(prey)
             if target > 0.0:
                 locomotion[approach(target_forward, target_lateral)] += self.primary_strength * target
-                effort[Effort.CRUISE] += 1.5 * target
-                effort[Effort.SPRINT] += 2.2 * target * hunger
+                # Proximity is encoded in target strength. Cruise limits pursuit
+                # cost; the adaptive effort head can learn when sprinting pays.
+                effort[Effort.CRUISE] += 3.5 * target
+                effort[Effort.SPRINT] -= 0.8 * target
             else:
                 locomotion[Locomotion.HOLD] += 1.5 * energy
                 locomotion[Locomotion.FORWARD] += 0.7 * hunger

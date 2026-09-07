@@ -124,7 +124,11 @@ class Simulation:
             cfg = self.config.herbivore if animal.species == "herbivore" else self.config.predator
             observation = self.observe(animal, herbivores, predators)
             instinct_preferences = animal.instinct.preferences(observation)
-            adaptive_preferences = animal.adaptive_policy.preferences(observation)
+            adaptive_preferences = (
+                animal.adaptive_policy.preferences(observation)
+                if self.learning
+                else [0.0] * TOTAL_ACTION_OUTPUTS
+            )
             action, combined_probabilities = animal.arbiter.choose(
                 instinct_preferences,
                 adaptive_preferences,
@@ -169,7 +173,10 @@ class Simulation:
                 animal.heading = (animal.heading - 1) % 4
             elif action.locomotion == Locomotion.TURN_RIGHT:
                 animal.heading = (animal.heading + 1) % 4
-            elif action.locomotion == Locomotion.FORWARD:
+            if action.locomotion == Locomotion.FORWARD or (
+                action.locomotion in (Locomotion.TURN_LEFT, Locomotion.TURN_RIGHT)
+                and action.effort != Effort.LOW
+            ):
                 dx, dy = HEADINGS[animal.heading]
                 distance = 2 if action.effort == Effort.SPRINT else 1
                 animal.x = (animal.x + dx * distance) % self.config.width

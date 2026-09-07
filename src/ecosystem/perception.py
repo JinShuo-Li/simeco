@@ -37,6 +37,19 @@ def relative_offset(heading: int, forward: int, lateral: int) -> tuple[int, int]
     raise ValueError(f"invalid heading: {heading}")
 
 
+def egocentric_vector(heading: int, dx: int, dy: int) -> tuple[int, int]:
+    """Convert a shortest world-space vector into forward/right components."""
+    if heading == 0:
+        return -dy, dx
+    if heading == 1:
+        return dx, dy
+    if heading == 2:
+        return dy, -dx
+    if heading == 3:
+        return -dx, -dy
+    raise ValueError(f"invalid heading: {heading}")
+
+
 class EgocentricPerception:
     """Encode a 3x3 body-relative patch and normalized physiology."""
 
@@ -58,13 +71,11 @@ class EgocentricPerception:
             max(0.0, min(1.0, organism.reproduction_progress)),
         ] + [0.0] * (PATCH_CELLS * len(CHANNELS))
 
-        positions: dict[tuple[int, int], tuple[int, int]] = {}
         for forward in (-1, 0, 1):
             for lateral in (-1, 0, 1):
                 dx, dy = relative_offset(organism.heading, forward, lateral)
                 x = (organism.x + dx) % world.width
                 y = (organism.y + dy) % world.height
-                positions[(x, y)] = (forward, lateral)
                 observation[channel_index("plants", forward, lateral)] = (
                     resources[y][x] / world.plant_capacity
                 )
@@ -73,9 +84,19 @@ class EgocentricPerception:
             for other in animals:
                 if other.id == organism.id:
                     continue
-                relative = positions.get((other.x, other.y))
-                if relative is None:
+                dx = (other.x - organism.x + world.width // 2) % world.width - world.width // 2
+                dy = (other.y - organism.y + world.height // 2) % world.height - world.height // 2
+                distance = abs(dx) + abs(dy)
+                if distance > species_config.vision:
                     continue
-                index = channel_index(channel, *relative)
-                observation[index] = min(1.0, observation[index] + 1.0 / 3.0)
+                if distance == 0:
+                    forward_band = lateral_band = 0
+                    proximity = 1.0
+                else:
+                    forward, lateral = egocentric_vector(organism.heading, dx, dy)
+                    forward_band = (forward > 0) - (forward < 0)
+                    lateral_band = (lateral > 0) - (lateral < 0)
+                    proximity = (species_config.vision + 1 - distance) / species_config.vision
+                index = channel_index(channel, forward_band, lateral_band)
+                observation[index] = min(1.0, observation[index] + proximity * 0.5)
         return observation
