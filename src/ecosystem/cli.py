@@ -69,6 +69,17 @@ def run_inspect(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_interactive(args: argparse.Namespace) -> int:
+    from .tui import run_tui
+
+    simulation = _simulation(args)
+    simulation = run_tui(simulation, args.snapshot, max_steps=args.max_steps)
+    if args.save_on_exit:
+        save_snapshot(simulation, args.snapshot)
+    print_summary(simulation)
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="ecosystem", description="A learning predator-prey ecosystem")
     subparsers = root.add_subparsers(dest="command")
@@ -96,6 +107,17 @@ def parser() -> argparse.ArgumentParser:
     inspect.add_argument("--organism", type=int)
     inspect.add_argument("--weights", action="store_true", help="include all MLP parameters")
     inspect.set_defaults(func=run_inspect)
+
+    tui = subparsers.add_parser("tui", help="observe and control the ecosystem in a terminal")
+    tui.add_argument("--seed", type=int, default=1)
+    tui.add_argument("--load", metavar="SNAPSHOT")
+    tui.add_argument("--snapshot", default="snapshots/latest.eco.gz")
+    tui.add_argument("--max-steps", type=int, help=argparse.SUPPRESS)
+    tui.add_argument("--save-on-exit", action="store_true")
+    learning = tui.add_mutually_exclusive_group()
+    learning.add_argument("--learning", action="store_true", dest="learning", default=True)
+    learning.add_argument("--no-learning", action="store_false", dest="learning")
+    tui.set_defaults(func=run_interactive)
     return root
 
 
