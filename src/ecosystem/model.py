@@ -57,6 +57,7 @@ class Metrics:
     deaths_predation: int = 0
     hunts: int = 0
     hunt_attempts: int = 0
+    prey_escapes: int = 0
     plants_eaten: float = 0.0
     reward_herbivore: float = 0.0
     reward_predator: float = 0.0
@@ -72,6 +73,7 @@ class Metrics:
             "deaths_predation": self.deaths_predation,
             "hunts": self.hunts,
             "hunt_attempts": self.hunt_attempts,
+            "prey_escapes": self.prey_escapes,
             "plants_eaten": self.plants_eaten,
             "reward_herbivore": self.reward_herbivore,
             "reward_predator": self.reward_predator,
@@ -81,4 +83,6 @@ class Metrics:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Metrics":
-        return cls(**data)
+        values = dict(data)
+        values.setdefault("prey_escapes", 0)
+        return cls(**values)

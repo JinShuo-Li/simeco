@@ -156,8 +156,22 @@ class Simulation:
                 if eaten > 0.25:
                     animal.meals += 1
                     reward += gained / 4.0
-                danger = max(observation[12:])
-                reward -= danger * 0.24
+                threats = observation[12:]
+                danger = max(threats)
+                if danger > 0.0:
+                    threat_action = threats.index(danger) + 1
+                    safe_action = {1: 3, 2: 4, 3: 1, 4: 2}[threat_action]
+                    if action == safe_action:
+                        reward += 0.80 * danger
+                    elif action == threat_action:
+                        reward -= 1.20 * danger
+                    reward -= danger * 0.08
+            else:
+                prey_directions = observation[8:12]
+                prey_signal = max(prey_directions)
+                if prey_signal > 0.0:
+                    pursuit_action = prey_directions.index(prey_signal) + 1
+                    reward += (0.55 if action == pursuit_action else -0.10) * prey_signal
             rewards[animal.id] = reward
 
         self._resolve_hunts(predators, rewards)
@@ -179,7 +193,7 @@ class Simulation:
             elif (
                 animal.age >= cfg.maturity_age
                 and animal.energy >= cfg.reproduce_energy
-                and self.rng.random() < self.config.reproduction_chance
+                and self.rng.random() < cfg.reproduction_chance
             ):
                 animal.energy -= cfg.reproduce_cost
                 child_policy = animal.policy.offspring(self.rng, cfg.mutation_rate, cfg.mutation_scale)
@@ -227,12 +241,17 @@ class Simulation:
         for predator in predators:
             if predator.id not in self.organisms:
                 continue
-            self.metrics.hunt_attempts += 1
             candidates = prey_by_cell.get((predator.x, predator.y), [])
             if not candidates:
                 rewards[predator.id] = rewards.get(predator.id, 0.0) - 0.07
                 continue
+            self.metrics.hunt_attempts += 1
             prey = self.rng.choice(candidates)
+            if self.rng.random() > self.config.capture_probability:
+                rewards[predator.id] = rewards.get(predator.id, 0.0) - 0.25
+                rewards[prey.id] = rewards.get(prey.id, 0.0) + 0.45
+                self.metrics.prey_escapes += 1
+                continue
             candidates.remove(prey)
             if prey.id not in self.organisms:
                 continue

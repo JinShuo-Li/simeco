@@ -86,7 +86,7 @@ def parser() -> argparse.ArgumentParser:
 
     batch = subparsers.add_parser("run", help="run quickly without a TUI")
     batch.add_argument("--steps", type=int, default=1000)
-    batch.add_argument("--seed", type=int, default=1)
+    batch.add_argument("--seed", type=int, default=3)
     batch.add_argument("--load", metavar="SNAPSHOT")
     batch.add_argument("--snapshot", metavar="PATH")
     batch.add_argument("--metrics", metavar="CSV")
@@ -97,7 +97,7 @@ def parser() -> argparse.ArgumentParser:
 
     compare = subparsers.add_parser("compare", help="compare learning on and off using paired seeds")
     compare.add_argument("--steps", type=int, default=1500)
-    compare.add_argument("--seed", type=int, default=1)
+    compare.add_argument("--seed", type=int, default=3)
     compare.add_argument("--replicates", type=int, default=3)
     compare.add_argument("--output", metavar="JSON")
     compare.set_defaults(func=run_compare)
@@ -109,7 +109,7 @@ def parser() -> argparse.ArgumentParser:
     inspect.set_defaults(func=run_inspect)
 
     tui = subparsers.add_parser("tui", help="observe and control the ecosystem in a terminal")
-    tui.add_argument("--seed", type=int, default=1)
+    tui.add_argument("--seed", type=int, default=3)
     tui.add_argument("--load", metavar="SNAPSHOT")
     tui.add_argument("--snapshot", default="snapshots/latest.eco.gz")
     tui.add_argument("--max-steps", type=int, help=argparse.SUPPRESS)

@@ -75,6 +75,10 @@ class TinyMLP:
         self.last_probabilities = probabilities
         return action
 
+    def probabilities(self, observation: list[float]) -> list[float]:
+        """Return action probabilities without changing learning state."""
+        return self._forward(observation)[1]
+
     def learn(self, reward: float, learning_rate: float) -> None:
         """Reinforce the preceding action; negative surprises update more strongly."""
         if self.last_observation is None or self.last_action is None:
