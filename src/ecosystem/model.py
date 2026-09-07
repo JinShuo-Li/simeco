@@ -18,6 +18,7 @@ class Organism:
     age: int
     generation: int
     parent_id: int | None
+    heading: int
     instinct: InstinctController
     adaptive_policy: AdaptivePolicy
     arbiter: ActionArbiter
@@ -37,6 +38,7 @@ class Organism:
             "age": self.age,
             "generation": self.generation,
             "parent_id": self.parent_id,
+            "heading": self.heading,
             "instinct": self.instinct.to_dict(),
             "adaptive_policy": self.adaptive_policy.to_dict(),
             "arbiter": self.arbiter.to_dict(),
@@ -61,6 +63,7 @@ class Organism:
         values["arbiter"] = ActionArbiter.from_dict(values.get("arbiter", {}))
         values.setdefault("action_counts", [0, 0, 0, 0, 0])
         values.setdefault("reproduction_progress", 0.0)
+        values.setdefault("heading", 0)
         return cls(**values)
 
     @property
