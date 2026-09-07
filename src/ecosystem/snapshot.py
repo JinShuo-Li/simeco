@@ -63,7 +63,10 @@ def load_snapshot(path: str | Path) -> Simulation:
     simulation = Simulation.__new__(Simulation)
     simulation.config = WorldConfig.from_dict(payload["config"])
     simulation.seed = payload["seed"]
-    simulation.learning = payload.get("controller_mode", "instinct+learning") == "instinct+learning"
+    if "controller_mode" in payload:
+        simulation.learning = payload["controller_mode"] == "instinct+learning"
+    else:
+        simulation.learning = payload["learning"]
     simulation.step_count = payload["step"]
     simulation.next_id = payload["next_id"]
     simulation.resources = payload["resources"]
