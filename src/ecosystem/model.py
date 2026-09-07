@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .network import TinyMLP
+from .controllers import ActionArbiter, InstinctController
+from .network import AdaptivePolicy
 
 
 @dataclass(slots=True)
@@ -17,7 +18,9 @@ class Organism:
     age: int
     generation: int
     parent_id: int | None
-    policy: TinyMLP
+    instinct: InstinctController
+    adaptive_policy: AdaptivePolicy
+    arbiter: ActionArbiter
     lifetime_reward: float = 0.0
     meals: int = 0
     offspring_count: int = 0
@@ -33,7 +36,9 @@ class Organism:
             "age": self.age,
             "generation": self.generation,
             "parent_id": self.parent_id,
-            "policy": self.policy.to_dict(),
+            "instinct": self.instinct.to_dict(),
+            "adaptive_policy": self.adaptive_policy.to_dict(),
+            "arbiter": self.arbiter.to_dict(),
             "lifetime_reward": self.lifetime_reward,
             "meals": self.meals,
             "offspring_count": self.offspring_count,
@@ -42,10 +47,23 @@ class Organism:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Organism":
-        data = dict(data)
-        data["policy"] = TinyMLP.from_dict(data["policy"])
-        data.setdefault("action_counts", [0, 0, 0, 0, 0])
-        return cls(**data)
+        values = dict(data)
+        # V1 snapshots stored only the individual network as ``policy``.
+        policy_data = values.pop("policy", None)
+        values["adaptive_policy"] = AdaptivePolicy.from_dict(
+            values.get("adaptive_policy", policy_data)
+        )
+        values["instinct"] = InstinctController.from_dict(
+            values.get("instinct", {"species": values["species"]})
+        )
+        values["arbiter"] = ActionArbiter.from_dict(values.get("arbiter", {}))
+        values.setdefault("action_counts", [0, 0, 0, 0, 0])
+        return cls(**values)
+
+    @property
+    def policy(self) -> AdaptivePolicy:
+        """Compatibility alias for V1 analysis scripts."""
+        return self.adaptive_policy
 
 
 @dataclass(slots=True)

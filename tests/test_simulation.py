@@ -8,8 +8,10 @@ class SimulationTests(unittest.TestCase):
         simulation = Simulation(seed=4)
         animals = list(simulation.organisms.values())
         self.assertGreater(len(animals), 2)
-        self.assertEqual(len({id(animal.policy) for animal in animals}), len(animals))
-        self.assertEqual(len({id(animal.policy.w1) for animal in animals}), len(animals))
+        self.assertEqual(len({id(animal.adaptive_policy) for animal in animals}), len(animals))
+        self.assertEqual(len({id(animal.adaptive_policy.w1) for animal in animals}), len(animals))
+        self.assertEqual(len({id(animal.instinct) for animal in animals}), len(animals))
+        self.assertEqual(len({id(animal.arbiter) for animal in animals}), len(animals))
 
     def test_observation_and_ecological_events(self):
         simulation = Simulation(seed=3)

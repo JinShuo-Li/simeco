@@ -8,8 +8,9 @@ import random
 from collections import defaultdict
 
 from .config import SpeciesConfig, WorldConfig
+from .controllers import ActionArbiter, InstinctController
 from .model import Metrics, Organism
-from .network import TinyMLP
+from .network import AdaptivePolicy
 
 ACTIONS = ((0, 0), (0, -1), (1, 0), (0, 1), (-1, 0))
 OBSERVATION_SIZE = 16
@@ -43,7 +44,7 @@ class Simulation:
 
     def _spawn_initial(self, species: str, cfg: SpeciesConfig) -> None:
         for _ in range(cfg.initial_count):
-            policy = TinyMLP.random(OBSERVATION_SIZE, cfg.hidden_size, len(ACTIONS), self.rng)
+            policy = AdaptivePolicy.random(OBSERVATION_SIZE, cfg.hidden_size, len(ACTIONS), self.rng)
             organism = Organism(
                 id=self.next_id,
                 species=species,
@@ -53,7 +54,9 @@ class Simulation:
                 age=self.rng.randrange(max(1, cfg.maturity_age)),
                 generation=0,
                 parent_id=None,
-                policy=policy,
+                instinct=InstinctController(species),
+                adaptive_policy=policy,
+                arbiter=ActionArbiter(),
             )
             self.organisms[organism.id] = organism
             self.next_id += 1
@@ -135,7 +138,19 @@ class Simulation:
         for animal in order:
             cfg = self.config.herbivore if animal.species == "herbivore" else self.config.predator
             observation = self.observe(animal, herbivores, predators)
-            action = animal.policy.choose(observation, self.rng)
+            instinct_preferences = animal.instinct.preferences(observation)
+            adaptive_preferences = animal.adaptive_policy.preferences(observation)
+            action, combined_probabilities = animal.arbiter.choose(
+                instinct_preferences,
+                adaptive_preferences,
+                adaptive_enabled=self.learning,
+                rng=self.rng,
+            )
+            animal.instinct.decisions += 1
+            if self.learning:
+                animal.adaptive_policy.record_decision(
+                    observation, action, combined_probabilities
+                )
             animal.action_counts[action] += 1
             dx, dy = ACTIONS[action]
             occupied[(animal.x, animal.y)] -= 1
@@ -156,22 +171,7 @@ class Simulation:
                 if eaten > 0.25:
                     animal.meals += 1
                     reward += gained / 4.0
-                threats = observation[12:]
-                danger = max(threats)
-                if danger > 0.0:
-                    threat_action = threats.index(danger) + 1
-                    safe_action = {1: 3, 2: 4, 3: 1, 4: 2}[threat_action]
-                    if action == safe_action:
-                        reward += 0.80 * danger
-                    elif action == threat_action:
-                        reward -= 1.20 * danger
-                    reward -= danger * 0.08
-            else:
-                prey_directions = observation[8:12]
-                prey_signal = max(prey_directions)
-                if prey_signal > 0.0:
-                    pursuit_action = prey_directions.index(prey_signal) + 1
-                    reward += (0.55 if action == pursuit_action else -0.10) * prey_signal
+            reward += 0.01  # surviving another tick is weak positive feedback
             rewards[animal.id] = reward
 
         self._resolve_hunts(predators, rewards)
@@ -190,13 +190,22 @@ class Simulation:
             elif animal.age >= cfg.max_age:
                 self.metrics.deaths_age += 1
                 dead.append(animal.id)
-            elif (
-                animal.age >= cfg.maturity_age
-                and animal.energy >= cfg.reproduce_energy
-                and self.rng.random() < cfg.reproduction_chance
+            else:
+                current_observation = self.observe(animal, herbivores, predators)
+                reproduction_drive = animal.instinct.reproduction_tendency(
+                    current_observation,
+                    cfg.maturity_age / cfg.max_age,
+                    cfg.reproduce_energy / cfg.max_energy,
+                )
+            if (
+                animal.id not in dead
+                and reproduction_drive > 0.0
+                and self.rng.random() < cfg.reproduction_chance * reproduction_drive
             ):
                 animal.energy -= cfg.reproduce_cost
-                child_policy = animal.policy.offspring(self.rng, cfg.mutation_rate, cfg.mutation_scale)
+                child_policy = animal.adaptive_policy.offspring(
+                    self.rng, cfg.mutation_rate, cfg.mutation_scale
+                )
                 child = Organism(
                     id=self.next_id,
                     species=animal.species,
@@ -206,7 +215,9 @@ class Simulation:
                     age=0,
                     generation=animal.generation + 1,
                     parent_id=animal.id,
-                    policy=child_policy,
+                    instinct=InstinctController(animal.species),
+                    adaptive_policy=child_policy,
+                    arbiter=ActionArbiter(),
                 )
                 self.next_id += 1
                 newborns.append(child)
@@ -218,7 +229,7 @@ class Simulation:
                     self.metrics.births_predator += 1
             animal.lifetime_reward += reward
             if self.learning:
-                animal.policy.learn(reward, cfg.learning_rate)
+                animal.adaptive_policy.learn(reward, cfg.learning_rate)
                 self.metrics.learning_updates += 1
             if animal.species == "herbivore":
                 self.metrics.reward_herbivore += reward

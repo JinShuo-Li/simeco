@@ -13,7 +13,7 @@ from .model import Metrics, Organism
 from .simulation import Simulation
 
 SNAPSHOT_FORMAT = "living-ecosystem"
-SNAPSHOT_VERSION = 1
+SNAPSHOT_VERSION = 2
 
 
 def save_snapshot(simulation: Simulation, path: str | Path) -> Path:
@@ -26,6 +26,7 @@ def save_snapshot(simulation: Simulation, path: str | Path) -> Path:
         "step": simulation.step_count,
         "seed": simulation.seed,
         "learning": simulation.learning,
+        "controller_mode": "instinct+learning" if simulation.learning else "instinct_only",
         "next_id": simulation.next_id,
         "config": simulation.config.to_dict(),
         "resources": simulation.resources,
@@ -56,13 +57,13 @@ def load_snapshot(path: str | Path) -> Simulation:
         payload = json.load(handle)
     if payload.get("format") != SNAPSHOT_FORMAT:
         raise ValueError("not a Living Ecosystem snapshot")
-    if payload.get("version") != SNAPSHOT_VERSION:
+    if payload.get("version") not in (1, SNAPSHOT_VERSION):
         raise ValueError(f"unsupported snapshot version: {payload.get('version')}")
 
     simulation = Simulation.__new__(Simulation)
     simulation.config = WorldConfig.from_dict(payload["config"])
     simulation.seed = payload["seed"]
-    simulation.learning = payload["learning"]
+    simulation.learning = payload.get("controller_mode", "instinct+learning") == "instinct+learning"
     simulation.step_count = payload["step"]
     simulation.next_id = payload["next_id"]
     simulation.resources = payload["resources"]

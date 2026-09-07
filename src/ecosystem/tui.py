@@ -104,7 +104,8 @@ class TerminalUI:
         screen.erase()
         height, width = screen.getmaxyx()
         sim = self.simulation
-        header = f" LIVING ECOSYSTEM  step {sim.step_count:,}  {'PAUSED' if self.paused else f'{self.speed}x'}  learning {'ON' if sim.learning else 'OFF'} "
+        mode = "INSTINCT+LEARNING" if sim.learning else "INSTINCT ONLY"
+        header = f" LIVING ECOSYSTEM V2  step {sim.step_count:,}  {'PAUSED' if self.paused else f'{self.speed}x'}  {mode} "
         self._put(screen, 0, 0, header, curses.A_REVERSE)
         map_height = min(sim.config.height, max(3, height - 5))
         side_width = 30 if width >= 76 else 0
@@ -142,7 +143,7 @@ class TerminalUI:
             x = map_width + 2
             plant_mean = sum(map(sum, sim.resources)) / (sim.config.width * sim.config.height)
             hunt_rate = sim.metrics.hunts / max(1, sim.metrics.hunt_attempts)
-            updates = sum(a.policy.updates for a in sim.organisms.values())
+            updates = sum(a.adaptive_policy.updates for a in sim.organisms.values())
             rewards = sum(a.lifetime_reward for a in sim.organisms.values()) / max(1, len(sim.organisms))
             lines = [
                 ("POPULATION", curses.A_BOLD),
@@ -178,7 +179,7 @@ class TerminalUI:
             detail = (
                 f"#{selected.id} {selected.species} E={selected.energy:.1f} age={selected.age} "
                 f"gen={selected.generation} meals={selected.meals} children={selected.offspring_count} "
-                f"reward={selected.lifetime_reward:.1f} updates={selected.policy.updates}"
+                f"reward={selected.lifetime_reward:.1f} updates={selected.adaptive_policy.updates}"
             )
             self._put(screen, footer_y + 1, 0, detail, curses.color_pair(4) if curses.has_colors() else 0)
         elif self.message:

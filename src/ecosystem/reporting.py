@@ -22,18 +22,27 @@ def summary(simulation: Simulation) -> dict:
         for direction, safe_action in enumerate(opposites):
             probe = neutral[:]
             probe[12 + direction] = 1.0
-            flee_response += animal.policy.probabilities(probe)[safe_action]
+            flee_response += animal.arbiter.probabilities(
+                animal.instinct.preferences(probe),
+                animal.adaptive_policy.preferences(probe),
+                simulation.learning,
+            )[safe_action]
     flee_response /= max(1, len(herbivores) * 4)
     pursuit_response = 0.0
     for animal in predators:
         for direction in range(4):
             probe = neutral[:]
             probe[8 + direction] = 1.0
-            pursuit_response += animal.policy.probabilities(probe)[direction + 1]
+            pursuit_response += animal.arbiter.probabilities(
+                animal.instinct.preferences(probe),
+                animal.adaptive_policy.preferences(probe),
+                simulation.learning,
+            )[direction + 1]
     pursuit_response /= max(1, len(predators) * 4)
     return {
         "seed": simulation.seed,
         "learning": simulation.learning,
+        "controller_mode": "instinct+learning" if simulation.learning else "instinct_only",
         "step": simulation.step_count,
         "herbivores": len(herbivores),
         "predators": len(predators),

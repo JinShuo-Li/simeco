@@ -12,8 +12,8 @@ def _matrix(rows: int, columns: int, rng: random.Random, scale: float) -> list[l
 
 
 @dataclass(slots=True)
-class TinyMLP:
-    """One-hidden-layer stochastic policy trained with an immediate policy gradient.
+class AdaptivePolicy:
+    """Individual learned residual policy trained with an immediate policy gradient.
 
     Each instance carries its parameters and reward baseline. There is deliberately
     no shared policy or replay buffer between organisms.
@@ -34,7 +34,7 @@ class TinyMLP:
     last_probabilities: list[float] | None = field(default=None, repr=False)
 
     @classmethod
-    def random(cls, inputs: int, hidden: int, outputs: int, rng: random.Random) -> "TinyMLP":
+    def random(cls, inputs: int, hidden: int, outputs: int, rng: random.Random) -> "AdaptivePolicy":
         return cls(
             inputs=inputs,
             hidden=hidden,
@@ -54,36 +54,33 @@ class TinyMLP:
             sum(weight * value for weight, value in zip(row, hidden)) + bias
             for row, bias in zip(self.w2, self.b2)
         ]
+        return hidden, logits
+
+    def preferences(self, observation: list[float]) -> list[float]:
+        """Return learned residual logits without changing learning state."""
+        return self._forward(observation)[1]
+
+    def record_decision(
+        self, observation: list[float], action: int, combined_probabilities: list[float]
+    ) -> None:
+        self.last_observation = list(observation)
+        self.last_action = action
+        self.last_probabilities = combined_probabilities[:]
+
+    def probabilities(self, observation: list[float]) -> list[float]:
+        """Return the adaptive component's probabilities for analysis."""
+        logits = self.preferences(observation)
         peak = max(logits)
         exponents = [math.exp(max(-30.0, value - peak)) for value in logits]
         total = sum(exponents)
-        return hidden, [value / total for value in exponents]
-
-    def choose(self, observation: list[float], rng: random.Random, exploration: float = 0.04) -> int:
-        _, probabilities = self._forward(observation)
-        mixed = [(1.0 - exploration) * value + exploration / self.outputs for value in probabilities]
-        pick = rng.random()
-        cumulative = 0.0
-        action = self.outputs - 1
-        for index, probability in enumerate(mixed):
-            cumulative += probability
-            if pick <= cumulative:
-                action = index
-                break
-        self.last_observation = list(observation)
-        self.last_action = action
-        self.last_probabilities = probabilities
-        return action
-
-    def probabilities(self, observation: list[float]) -> list[float]:
-        """Return action probabilities without changing learning state."""
-        return self._forward(observation)[1]
+        return [value / total for value in exponents]
 
     def learn(self, reward: float, learning_rate: float) -> None:
         """Reinforce the preceding action; negative surprises update more strongly."""
         if self.last_observation is None or self.last_action is None:
             return
-        hidden, probabilities = self._forward(self.last_observation)
+        hidden, _ = self._forward(self.last_observation)
+        probabilities = self.last_probabilities or self.probabilities(self.last_observation)
         advantage = max(-4.0, min(4.0, reward - self.baseline))
         rate = learning_rate * (1.8 if advantage < 0.0 else 1.0)
         output_delta = [(-probability) * advantage for probability in probabilities]
@@ -107,8 +104,8 @@ class TinyMLP:
         self.reward_total += reward
         self.updates += 1
 
-    def offspring(self, rng: random.Random, mutation_rate: float, mutation_scale: float) -> "TinyMLP":
-        child = TinyMLP.from_dict(self.to_dict())
+    def offspring(self, rng: random.Random, mutation_rate: float, mutation_scale: float) -> "AdaptivePolicy":
+        child = AdaptivePolicy.from_dict(self.to_dict())
         child.last_observation = None
         child.last_action = None
         child.last_probabilities = None
@@ -144,7 +141,7 @@ class TinyMLP:
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "TinyMLP":
+    def from_dict(cls, data: dict) -> "AdaptivePolicy":
         values = dict(data)
         values["w1"] = [row[:] for row in values["w1"]]
         values["b1"] = values["b1"][:]
@@ -155,3 +152,7 @@ class TinyMLP:
         if values.get("last_probabilities") is not None:
             values["last_probabilities"] = values["last_probabilities"][:]
         return cls(**values)
+
+
+# Import compatibility for analysis code written against simeco V1.
+TinyMLP = AdaptivePolicy

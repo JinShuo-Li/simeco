@@ -17,7 +17,8 @@ def _simulation(args: argparse.Namespace) -> Simulation:
         if getattr(args, "learning", None) is not None:
             simulation.learning = args.learning
         return simulation
-    return Simulation(seed=args.seed, learning=args.learning)
+    learning = True if getattr(args, "learning", None) is None else args.learning
+    return Simulation(seed=args.seed, learning=learning)
 
 
 def run_batch(args: argparse.Namespace) -> int:
@@ -55,8 +56,8 @@ def run_inspect(args: argparse.Namespace) -> int:
     if animal is None:
         raise SystemExit(f"organism {args.organism} is not alive in this snapshot")
     data = animal.to_dict()
-    policy = data.pop("policy")
-    data["policy_summary"] = {
+    policy = data.pop("adaptive_policy")
+    data["adaptive_policy_summary"] = {
         "shape": [policy["inputs"], policy["hidden"], policy["outputs"]],
         "updates": policy["updates"],
         "reward_total": policy["reward_total"],
@@ -64,7 +65,7 @@ def run_inspect(args: argparse.Namespace) -> int:
         "parameter_count": policy["hidden"] * policy["inputs"] + policy["hidden"] + policy["outputs"] * policy["hidden"] + policy["outputs"],
     }
     if args.weights:
-        data["policy"] = policy
+        data["adaptive_policy"] = policy
     print(json.dumps(data, indent=2, sort_keys=True))
     return 0
 
@@ -91,11 +92,13 @@ def parser() -> argparse.ArgumentParser:
     batch.add_argument("--snapshot", metavar="PATH")
     batch.add_argument("--metrics", metavar="CSV")
     learning = batch.add_mutually_exclusive_group()
-    learning.add_argument("--learning", action="store_true", dest="learning", default=True)
-    learning.add_argument("--no-learning", action="store_false", dest="learning")
+    learning.add_argument("--learning", action="store_true", dest="learning", default=None,
+                          help="use instinct plus lifetime learning (default)")
+    learning.add_argument("--instinct-only", "--no-learning", action="store_false", dest="learning",
+                          help="use innate behavior without adaptive influence or updates")
     batch.set_defaults(func=run_batch)
 
-    compare = subparsers.add_parser("compare", help="compare learning on and off using paired seeds")
+    compare = subparsers.add_parser("compare", help="compare instinct-only and instinct+learning modes")
     compare.add_argument("--steps", type=int, default=1500)
     compare.add_argument("--seed", type=int, default=3)
     compare.add_argument("--replicates", type=int, default=3)
@@ -115,8 +118,10 @@ def parser() -> argparse.ArgumentParser:
     tui.add_argument("--max-steps", type=int, help=argparse.SUPPRESS)
     tui.add_argument("--save-on-exit", action="store_true")
     learning = tui.add_mutually_exclusive_group()
-    learning.add_argument("--learning", action="store_true", dest="learning", default=True)
-    learning.add_argument("--no-learning", action="store_false", dest="learning")
+    learning.add_argument("--learning", action="store_true", dest="learning", default=None,
+                          help="use instinct plus lifetime learning (default)")
+    learning.add_argument("--instinct-only", "--no-learning", action="store_false", dest="learning",
+                          help="use innate behavior without adaptive influence or updates")
     tui.set_defaults(func=run_interactive)
     return root
 
