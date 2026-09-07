@@ -54,9 +54,10 @@ class Simulation:
                 age=self.rng.randrange(max(1, cfg.maturity_age)),
                 generation=0,
                 parent_id=None,
-                instinct=InstinctController(species),
+                instinct=InstinctController(species, cfg.instinct_strength),
                 adaptive_policy=policy,
                 arbiter=ActionArbiter(),
+                reproduction_progress=self.rng.random(),
             )
             self.organisms[organism.id] = organism
             self.next_id += 1
@@ -149,9 +150,18 @@ class Simulation:
             animal.instinct.decisions += 1
             if self.learning:
                 animal.adaptive_policy.record_decision(
-                    observation, action, combined_probabilities
+                    observation,
+                    action,
+                    combined_probabilities,
+                    animal.arbiter.adaptive_weight / animal.arbiter.temperature,
                 )
             animal.action_counts[action] += 1
+            action_metric = (
+                self.metrics.actions_herbivore
+                if animal.species == "herbivore"
+                else self.metrics.actions_predator
+            )
+            action_metric[action] += 1
             dx, dy = ACTIONS[action]
             occupied[(animal.x, animal.y)] -= 1
             animal.x = (animal.x + dx) % self.config.width
@@ -159,6 +169,8 @@ class Simulation:
             occupied[(animal.x, animal.y)] += 1
             cost = cfg.idle_cost if action == 0 else cfg.move_cost
             cost += self.config.crowding_cost * max(0, occupied[(animal.x, animal.y)] - 2)
+            if animal.species == "predator":
+                cost += cfg.competition_cost * sum(observation[12:])
             animal.energy -= cost
             reward = -cost / cfg.move_cost * 0.08
             if animal.species == "herbivore":
@@ -197,11 +209,15 @@ class Simulation:
                     cfg.maturity_age / cfg.max_age,
                     cfg.reproduce_energy / cfg.max_energy,
                 )
+                if reproduction_drive > 0.0:
+                    animal.reproduction_progress += cfg.reproduction_chance * reproduction_drive
+                else:
+                    animal.reproduction_progress *= 0.995
             if (
                 animal.id not in dead
-                and reproduction_drive > 0.0
-                and self.rng.random() < cfg.reproduction_chance * reproduction_drive
+                and animal.reproduction_progress >= 1.0
             ):
+                animal.reproduction_progress -= 1.0
                 animal.energy -= cfg.reproduce_cost
                 child_policy = animal.adaptive_policy.offspring(
                     self.rng, cfg.mutation_rate, cfg.mutation_scale
@@ -215,9 +231,10 @@ class Simulation:
                     age=0,
                     generation=animal.generation + 1,
                     parent_id=animal.id,
-                    instinct=InstinctController(animal.species),
+                    instinct=InstinctController(animal.species, cfg.instinct_strength),
                     adaptive_policy=child_policy,
                     arbiter=ActionArbiter(),
+                    reproduction_progress=0.0,
                 )
                 self.next_id += 1
                 newborns.append(child)

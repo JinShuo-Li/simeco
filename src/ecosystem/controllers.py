@@ -12,6 +12,7 @@ class InstinctController:
     """Species-specific survival behavior available unchanged from birth."""
 
     species: str
+    primary_strength: float = 4.0
     decisions: int = 0
 
     def preferences(self, observation: list[float]) -> list[float]:
@@ -35,14 +36,14 @@ class InstinctController:
             if danger > 0.0:
                 threat_action = predators.index(danger) + 1
                 safe_action = {1: 3, 2: 4, 3: 1, 4: 2}[threat_action]
-                scores[safe_action] += 4.5 * danger
+                scores[safe_action] += self.primary_strength * danger
                 scores[threat_action] -= 3.2 * danger
                 scores[0] -= 1.5 * danger
         elif self.species == "predator":
             target = max(prey)
             if target > 0.0:
                 pursuit_action = prey.index(target) + 1
-                scores[pursuit_action] += 4.2 * target
+                scores[pursuit_action] += self.primary_strength * target
                 scores[0] -= 1.2 * target
             else:
                 # Conserve energy when satiated; hungry animals search stochastically.
@@ -62,7 +63,11 @@ class InstinctController:
         return min(1.0, (observation[1] - threshold_fraction) * 4.0 + 0.35)
 
     def to_dict(self) -> dict:
-        return {"species": self.species, "decisions": self.decisions}
+        return {
+            "species": self.species,
+            "primary_strength": self.primary_strength,
+            "decisions": self.decisions,
+        }
 
     @classmethod
     def from_dict(cls, data: dict) -> "InstinctController":
@@ -74,7 +79,7 @@ class ActionArbiter:
     """Mix innate logits with an individual's learned residual logits."""
 
     instinct_weight: float = 1.0
-    adaptive_weight: float = 0.40
+    adaptive_weight: float = 0.12
     temperature: float = 0.85
     exploration: float = 0.035
     decisions: int = 0

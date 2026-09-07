@@ -26,12 +26,14 @@ class AdaptivePolicy:
     b1: list[float]
     w2: list[list[float]]
     b2: list[float]
+    residual_scale: float = 1.0
     baseline: float = 0.0
     updates: int = 0
     reward_total: float = 0.0
     last_observation: list[float] | None = field(default=None, repr=False)
     last_action: int | None = field(default=None, repr=False)
     last_probabilities: list[float] | None = field(default=None, repr=False)
+    last_gradient_scale: float = field(default=1.0, repr=False)
 
     @classmethod
     def random(cls, inputs: int, hidden: int, outputs: int, rng: random.Random) -> "AdaptivePolicy":
@@ -57,15 +59,21 @@ class AdaptivePolicy:
         return hidden, logits
 
     def preferences(self, observation: list[float]) -> list[float]:
-        """Return learned residual logits without changing learning state."""
-        return self._forward(observation)[1]
+        """Return bounded residual logits without changing learning state."""
+        raw = self._forward(observation)[1]
+        return [math.tanh(value) * self.residual_scale for value in raw]
 
     def record_decision(
-        self, observation: list[float], action: int, combined_probabilities: list[float]
+        self,
+        observation: list[float],
+        action: int,
+        combined_probabilities: list[float],
+        gradient_scale: float = 1.0,
     ) -> None:
         self.last_observation = list(observation)
         self.last_action = action
         self.last_probabilities = combined_probabilities[:]
+        self.last_gradient_scale = gradient_scale
 
     def probabilities(self, observation: list[float]) -> list[float]:
         """Return the adaptive component's probabilities for analysis."""
@@ -79,12 +87,19 @@ class AdaptivePolicy:
         """Reinforce the preceding action; negative surprises update more strongly."""
         if self.last_observation is None or self.last_action is None:
             return
-        hidden, _ = self._forward(self.last_observation)
+        hidden, raw_preferences = self._forward(self.last_observation)
         probabilities = self.last_probabilities or self.probabilities(self.last_observation)
         advantage = max(-4.0, min(4.0, reward - self.baseline))
         rate = learning_rate * (1.8 if advantage < 0.0 else 1.0)
         output_delta = [(-probability) * advantage for probability in probabilities]
         output_delta[self.last_action] += advantage
+        output_delta = [
+            delta
+            * self.last_gradient_scale
+            * self.residual_scale
+            * (1.0 - math.tanh(raw) ** 2)
+            for delta, raw in zip(output_delta, raw_preferences)
+        ]
         old_w2 = [row[:] for row in self.w2]
 
         for out_index in range(self.outputs):
@@ -109,6 +124,7 @@ class AdaptivePolicy:
         child.last_observation = None
         child.last_action = None
         child.last_probabilities = None
+        child.last_gradient_scale = 1.0
         child.updates = 0
         child.reward_total = 0.0
         child.baseline *= 0.5
@@ -132,12 +148,14 @@ class AdaptivePolicy:
             "b1": self.b1,
             "w2": self.w2,
             "b2": self.b2,
+            "residual_scale": self.residual_scale,
             "baseline": self.baseline,
             "updates": self.updates,
             "reward_total": self.reward_total,
             "last_observation": self.last_observation,
             "last_action": self.last_action,
             "last_probabilities": self.last_probabilities,
+            "last_gradient_scale": self.last_gradient_scale,
         }
 
     @classmethod
@@ -147,6 +165,8 @@ class AdaptivePolicy:
         values["b1"] = values["b1"][:]
         values["w2"] = [row[:] for row in values["w2"]]
         values["b2"] = values["b2"][:]
+        values.setdefault("residual_scale", 1.0)
+        values.setdefault("last_gradient_scale", 1.0)
         if values.get("last_observation") is not None:
             values["last_observation"] = values["last_observation"][:]
         if values.get("last_probabilities") is not None:

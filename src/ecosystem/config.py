@@ -18,6 +18,8 @@ class SpeciesConfig:
     max_age: int
     vision: int
     reproduction_chance: float
+    instinct_strength: float
+    competition_cost: float
     hidden_size: int = 10
     learning_rate: float = 0.035
     mutation_rate: float = 0.08
@@ -35,7 +37,7 @@ class WorldConfig:
     plant_bite: float = 3.2
     plant_energy: float = 2.7
     prey_energy_fraction: float = 0.50
-    capture_probability: float = 0.40
+    capture_probability: float = 0.25
     crowding_cost: float = 0.10
     history_interval: int = 10
     herbivore: SpeciesConfig = field(
@@ -51,6 +53,8 @@ class WorldConfig:
             max_age=620,
             vision=4,
             reproduction_chance=0.004,
+            instinct_strength=4.5,
+            competition_cost=0.0,
             learning_rate=0.030,
         )
     )
@@ -59,15 +63,17 @@ class WorldConfig:
             initial_count=4,
             initial_energy=30.0,
             max_energy=55.0,
-            move_cost=0.08,
-            idle_cost=0.05,
+            move_cost=0.04,
+            idle_cost=0.025,
             reproduce_energy=36.0,
             reproduce_cost=15.0,
             maturity_age=50,
-            max_age=3000,
+            max_age=4500,
             vision=6,
-            reproduction_chance=0.0015,
-            learning_rate=0.015,
+            reproduction_chance=0.0013,
+            instinct_strength=2.7,
+            competition_cost=0.02,
+            learning_rate=0.010,
         )
     )
 
@@ -77,6 +83,10 @@ class WorldConfig:
     @classmethod
     def from_dict(cls, data: dict) -> "WorldConfig":
         values = dict(data)
+        values["herbivore"].setdefault("instinct_strength", 4.5)
+        values["predator"].setdefault("instinct_strength", 3.0)
+        values["herbivore"].setdefault("competition_cost", 0.0)
+        values["predator"].setdefault("competition_cost", 0.0)
         values["herbivore"] = SpeciesConfig(**values["herbivore"])
         values["predator"] = SpeciesConfig(**values["predator"])
         return cls(**values)

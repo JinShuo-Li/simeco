@@ -24,6 +24,7 @@ class Organism:
     lifetime_reward: float = 0.0
     meals: int = 0
     offspring_count: int = 0
+    reproduction_progress: float = 0.0
     action_counts: list[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
 
     def to_dict(self) -> dict:
@@ -42,6 +43,7 @@ class Organism:
             "lifetime_reward": self.lifetime_reward,
             "meals": self.meals,
             "offspring_count": self.offspring_count,
+            "reproduction_progress": self.reproduction_progress,
             "action_counts": self.action_counts,
         }
 
@@ -58,6 +60,7 @@ class Organism:
         )
         values["arbiter"] = ActionArbiter.from_dict(values.get("arbiter", {}))
         values.setdefault("action_counts", [0, 0, 0, 0, 0])
+        values.setdefault("reproduction_progress", 0.0)
         return cls(**values)
 
     @property
@@ -80,6 +83,8 @@ class Metrics:
     reward_herbivore: float = 0.0
     reward_predator: float = 0.0
     learning_updates: int = 0
+    actions_herbivore: list[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
+    actions_predator: list[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
     history: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -96,6 +101,8 @@ class Metrics:
             "reward_herbivore": self.reward_herbivore,
             "reward_predator": self.reward_predator,
             "learning_updates": self.learning_updates,
+            "actions_herbivore": self.actions_herbivore,
+            "actions_predator": self.actions_predator,
             "history": self.history,
         }
 
@@ -103,4 +110,6 @@ class Metrics:
     def from_dict(cls, data: dict) -> "Metrics":
         values = dict(data)
         values.setdefault("prey_escapes", 0)
+        values.setdefault("actions_herbivore", [0, 0, 0, 0, 0])
+        values.setdefault("actions_predator", [0, 0, 0, 0, 0])
         return cls(**values)
