@@ -6,6 +6,8 @@ import math
 import random
 from dataclasses import dataclass, field
 
+from .actions import HEAD_SIZES, EmbodiedAction
+
 
 def _matrix(rows: int, columns: int, rng: random.Random, scale: float) -> list[list[float]]:
     return [[rng.gauss(0.0, scale) for _ in range(columns)] for _ in range(rows)]
@@ -31,7 +33,7 @@ class AdaptivePolicy:
     updates: int = 0
     reward_total: float = 0.0
     last_observation: list[float] | None = field(default=None, repr=False)
-    last_action: int | None = field(default=None, repr=False)
+    last_actions: list[int] | None = field(default=None, repr=False)
     last_probabilities: list[float] | None = field(default=None, repr=False)
     last_gradient_scale: float = field(default=1.0, repr=False)
 
@@ -66,33 +68,44 @@ class AdaptivePolicy:
     def record_decision(
         self,
         observation: list[float],
-        action: int,
+        action: EmbodiedAction,
         combined_probabilities: list[float],
         gradient_scale: float = 1.0,
     ) -> None:
         self.last_observation = list(observation)
-        self.last_action = action
+        self.last_actions = action.indices()
         self.last_probabilities = combined_probabilities[:]
         self.last_gradient_scale = gradient_scale
 
     def probabilities(self, observation: list[float]) -> list[float]:
         """Return the adaptive component's probabilities for analysis."""
         logits = self.preferences(observation)
-        peak = max(logits)
-        exponents = [math.exp(max(-30.0, value - peak)) for value in logits]
-        total = sum(exponents)
-        return [value / total for value in exponents]
+        probabilities: list[float] = []
+        offset = 0
+        for size in HEAD_SIZES:
+            head = logits[offset : offset + size]
+            peak = max(head)
+            exponents = [math.exp(max(-30.0, value - peak)) for value in head]
+            total = sum(exponents)
+            probabilities.extend(value / total for value in exponents)
+            offset += size
+        return probabilities
 
     def learn(self, reward: float, learning_rate: float) -> None:
         """Reinforce the preceding action; negative surprises update more strongly."""
-        if self.last_observation is None or self.last_action is None:
+        if self.last_observation is None or self.last_actions is None:
             return
         hidden, raw_preferences = self._forward(self.last_observation)
         probabilities = self.last_probabilities or self.probabilities(self.last_observation)
         advantage = max(-4.0, min(4.0, reward - self.baseline))
         rate = learning_rate * (1.8 if advantage < 0.0 else 1.0)
-        output_delta = [(-probability) * advantage for probability in probabilities]
-        output_delta[self.last_action] += advantage
+        output_delta = [0.0] * self.outputs
+        offset = 0
+        for size, action in zip(HEAD_SIZES, self.last_actions):
+            for index in range(size):
+                output_delta[offset + index] = -probabilities[offset + index] * advantage
+            output_delta[offset + action] += advantage
+            offset += size
         output_delta = [
             delta
             * self.last_gradient_scale
@@ -122,7 +135,7 @@ class AdaptivePolicy:
     def offspring(self, rng: random.Random, mutation_rate: float, mutation_scale: float) -> "AdaptivePolicy":
         child = AdaptivePolicy.from_dict(self.to_dict())
         child.last_observation = None
-        child.last_action = None
+        child.last_actions = None
         child.last_probabilities = None
         child.last_gradient_scale = 1.0
         child.updates = 0
@@ -153,7 +166,7 @@ class AdaptivePolicy:
             "updates": self.updates,
             "reward_total": self.reward_total,
             "last_observation": self.last_observation,
-            "last_action": self.last_action,
+            "last_actions": self.last_actions,
             "last_probabilities": self.last_probabilities,
             "last_gradient_scale": self.last_gradient_scale,
         }
@@ -167,10 +180,15 @@ class AdaptivePolicy:
         values["b2"] = values["b2"][:]
         values.setdefault("residual_scale", 1.0)
         values.setdefault("last_gradient_scale", 1.0)
+        if "last_actions" not in values:
+            old_action = values.pop("last_action", None)
+            values["last_actions"] = None if old_action is None else [old_action]
         if values.get("last_observation") is not None:
             values["last_observation"] = values["last_observation"][:]
         if values.get("last_probabilities") is not None:
             values["last_probabilities"] = values["last_probabilities"][:]
+        if values.get("last_actions") is not None:
+            values["last_actions"] = values["last_actions"][:]
         return cls(**values)
 
 

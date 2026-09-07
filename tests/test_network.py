@@ -1,6 +1,7 @@
 import random
 import unittest
 
+from ecosystem.actions import TOTAL_ACTION_OUTPUTS, EmbodiedAction
 from ecosystem.network import AdaptivePolicy
 
 
@@ -17,13 +18,14 @@ class AdaptivePolicyTests(unittest.TestCase):
 
     def test_positive_feedback_increases_chosen_action_probability(self):
         rng = random.Random(8)
-        policy = AdaptivePolicy.random(3, 4, 2, rng)
+        policy = AdaptivePolicy.random(3, 4, TOTAL_ACTION_OUTPUTS, rng)
         observation = [1.0, 0.2, -0.4]
-        action = 1
-        before = policy.probabilities(observation)[action]
-        policy.record_decision(observation, action, [0.5, 0.5])
+        action = EmbodiedAction(1, 1, 1, 1)
+        before = policy.probabilities(observation)[1]
+        combined = [0.25] * 4 + [1 / 3] * 3 + [1 / 3] * 3 + [0.5] * 2
+        policy.record_decision(observation, action, combined)
         policy.learn(2.0, 0.1)
-        after = policy.probabilities(observation)[action]
+        after = policy.probabilities(observation)[1]
         self.assertGreater(after, before)
 
 

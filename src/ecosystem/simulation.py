@@ -7,13 +7,22 @@ import pickle
 import random
 from collections import defaultdict
 
+from .actions import (
+    HEAD_SIZES,
+    TOTAL_ACTION_OUTPUTS,
+    Effort,
+    EmbodiedAction,
+    Interaction,
+    Locomotion,
+    Reproduction,
+)
 from .config import SpeciesConfig, WorldConfig
 from .controllers import ActionArbiter, InstinctController
 from .model import Metrics, Organism
 from .network import AdaptivePolicy
+from .perception import OBSERVATION_SIZE, EgocentricPerception, channel_index
 
-ACTIONS = ((0, 0), (0, -1), (1, 0), (0, 1), (-1, 0))
-OBSERVATION_SIZE = 16
+HEADINGS = ((0, -1), (1, 0), (0, 1), (-1, 0))
 
 
 class Simulation:
@@ -44,7 +53,9 @@ class Simulation:
 
     def _spawn_initial(self, species: str, cfg: SpeciesConfig) -> None:
         for _ in range(cfg.initial_count):
-            policy = AdaptivePolicy.random(OBSERVATION_SIZE, cfg.hidden_size, len(ACTIONS), self.rng)
+            policy = AdaptivePolicy.random(
+                OBSERVATION_SIZE, cfg.hidden_size, TOTAL_ACTION_OUTPUTS, self.rng
+            )
             organism = Organism(
                 id=self.next_id,
                 species=species,
@@ -55,7 +66,12 @@ class Simulation:
                 generation=0,
                 parent_id=None,
                 heading=self.rng.randrange(4),
-                instinct=InstinctController(species, cfg.instinct_strength),
+                instinct=InstinctController(
+                    species,
+                    cfg.instinct_strength,
+                    cfg.reproduce_energy / cfg.max_energy,
+                    cfg.maturity_age / cfg.max_age,
+                ),
                 adaptive_policy=policy,
                 arbiter=ActionArbiter(),
                 reproduction_progress=self.rng.random(),
@@ -66,45 +82,11 @@ class Simulation:
     def species(self, name: str) -> list[Organism]:
         return [organism for organism in self.organisms.values() if organism.species == name]
 
-    def _distance_vector(self, source: Organism, targets: list[Organism], vision: int) -> list[float]:
-        scores = [0.0, 0.0, 0.0, 0.0]
-        width, height = self.config.width, self.config.height
-        for target in targets:
-            if target.id == source.id:
-                continue
-            dx = (target.x - source.x + width // 2) % width - width // 2
-            dy = (target.y - source.y + height // 2) % height - height // 2
-            distance = abs(dx) + abs(dy)
-            if not 0 < distance <= vision:
-                continue
-            strength = (vision + 1 - distance) / vision
-            if abs(dx) >= abs(dy) and dx:
-                scores[1 if dx > 0 else 3] += strength
-            if abs(dy) >= abs(dx) and dy:
-                scores[2 if dy > 0 else 0] += strength
-        return [min(1.0, value) for value in scores]
-
     def observe(self, organism: Organism, herbivores: list[Organism], predators: list[Organism]) -> list[float]:
         cfg = self.config.herbivore if organism.species == "herbivore" else self.config.predator
-        plant_directions = []
-        for dx, dy in ACTIONS[1:]:
-            total = 0.0
-            for distance in range(1, cfg.vision + 1):
-                x = (organism.x + dx * distance) % self.config.width
-                y = (organism.y + dy * distance) % self.config.height
-                total += self.resources[y][x] / (self.config.plant_capacity * distance)
-            plant_directions.append(min(1.0, total / 1.6))
-        prey_signal = self._distance_vector(organism, herbivores, cfg.vision)
-        predator_signal = self._distance_vector(organism, predators, cfg.vision)
-        return [
-            1.0,
-            min(1.0, organism.energy / cfg.max_energy),
-            min(1.0, organism.age / cfg.max_age),
-            self.resources[organism.y][organism.x] / self.config.plant_capacity,
-            *plant_directions,
-            *prey_signal,
-            *predator_signal,
-        ]
+        return EgocentricPerception.encode(
+            self.config, cfg, self.resources, organism, herbivores, predators
+        )
 
     def _grow_resources(self) -> None:
         cfg = self.config
@@ -137,6 +119,7 @@ class Simulation:
             occupied[(animal.x, animal.y)] += 1
 
         rewards: dict[int, float] = {}
+        decisions: dict[int, EmbodiedAction] = {}
         for animal in order:
             cfg = self.config.herbivore if animal.species == "herbivore" else self.config.predator
             observation = self.observe(animal, herbivores, predators)
@@ -148,6 +131,7 @@ class Simulation:
                 adaptive_enabled=self.learning,
                 rng=self.rng,
             )
+            decisions[animal.id] = action
             animal.instinct.decisions += 1
             if self.learning:
                 animal.adaptive_policy.record_decision(
@@ -156,30 +140,79 @@ class Simulation:
                     combined_probabilities,
                     animal.arbiter.adaptive_weight / animal.arbiter.temperature,
                 )
-            animal.action_counts[action] += 1
+            animal.action_counts[action.locomotion] += 1
             action_metric = (
                 self.metrics.actions_herbivore
                 if animal.species == "herbivore"
                 else self.metrics.actions_predator
             )
-            action_metric[action] += 1
-            dx, dy = ACTIONS[action]
+            action_metric[action.locomotion] += 1
+            effort_metric = (
+                self.metrics.efforts_herbivore
+                if animal.species == "herbivore"
+                else self.metrics.efforts_predator
+            )
+            interaction_metric = (
+                self.metrics.interactions_herbivore
+                if animal.species == "herbivore"
+                else self.metrics.interactions_predator
+            )
+            effort_metric[action.effort] += 1
+            interaction_metric[action.interaction] += 1
+            if action.reproduction == Reproduction.INTEND:
+                if animal.species == "herbivore":
+                    self.metrics.reproduction_intents_herbivore += 1
+                else:
+                    self.metrics.reproduction_intents_predator += 1
             occupied[(animal.x, animal.y)] -= 1
-            animal.x = (animal.x + dx) % self.config.width
-            animal.y = (animal.y + dy) % self.config.height
+            if action.locomotion == Locomotion.TURN_LEFT:
+                animal.heading = (animal.heading - 1) % 4
+            elif action.locomotion == Locomotion.TURN_RIGHT:
+                animal.heading = (animal.heading + 1) % 4
+            elif action.locomotion == Locomotion.FORWARD:
+                dx, dy = HEADINGS[animal.heading]
+                distance = 2 if action.effort == Effort.SPRINT else 1
+                animal.x = (animal.x + dx * distance) % self.config.width
+                animal.y = (animal.y + dy * distance) % self.config.height
             occupied[(animal.x, animal.y)] += 1
-            cost = cfg.idle_cost if action == 0 else cfg.move_cost
+
+            if action.locomotion == Locomotion.HOLD:
+                cost = cfg.idle_cost * (0.65, 1.0, 1.5)[action.effort]
+            elif action.locomotion == Locomotion.FORWARD:
+                cost = cfg.move_cost * (0.65, 1.0, 2.4)[action.effort]
+            else:
+                cost = cfg.move_cost * (0.35, 0.55, 0.9)[action.effort]
+            if action.interaction == Interaction.ATTACK:
+                cost += cfg.move_cost * 0.8
             cost += self.config.crowding_cost * max(0, occupied[(animal.x, animal.y)] - 2)
             if animal.species == "predator":
-                cost += cfg.competition_cost * sum(observation[12:])
+                cost += cfg.competition_cost * sum(
+                    observation[channel_index("predators", forward, lateral)]
+                    for forward in (-1, 0, 1)
+                    for lateral in (-1, 0, 1)
+                )
+            if action.effort == Effort.SPRINT:
+                stimulus_channel = "predators" if animal.species == "herbivore" else "herbivores"
+                stimulus = sum(
+                    observation[channel_index(stimulus_channel, forward, lateral)]
+                    for forward in (-1, 0, 1)
+                    for lateral in (-1, 0, 1)
+                )
+                if stimulus == 0.0:
+                    self.metrics.unnecessary_sprints += 1
             animal.energy -= cost
-            reward = -cost / cfg.move_cost * 0.08
             if animal.species == "herbivore":
+                self.metrics.energy_spent_herbivore += cost
+            else:
+                self.metrics.energy_spent_predator += cost
+            reward = -cost / cfg.move_cost * 0.08
+            if animal.species == "herbivore" and action.interaction == Interaction.FEED:
                 available = self.resources[animal.y][animal.x]
                 eaten = min(available, self.config.plant_bite)
                 self.resources[animal.y][animal.x] -= eaten
                 gained = eaten * self.config.plant_energy
                 animal.energy = min(cfg.max_energy, animal.energy + gained)
+                self.metrics.energy_gained_herbivore += gained
                 self.metrics.plants_eaten += eaten
                 if eaten > 0.25:
                     animal.meals += 1
@@ -187,7 +220,7 @@ class Simulation:
             reward += 0.01  # surviving another tick is weak positive feedback
             rewards[animal.id] = reward
 
-        self._resolve_hunts(predators, rewards)
+        self._resolve_hunts(predators, decisions, rewards)
         newborns: list[Organism] = []
         dead: list[int] = []
         for animal in order:
@@ -210,7 +243,8 @@ class Simulation:
                     cfg.maturity_age / cfg.max_age,
                     cfg.reproduce_energy / cfg.max_energy,
                 )
-                if reproduction_drive > 0.0:
+                intent = decisions[animal.id].reproduction == Reproduction.INTEND
+                if reproduction_drive > 0.0 and intent:
                     animal.reproduction_progress += cfg.reproduction_chance * reproduction_drive
                 else:
                     animal.reproduction_progress *= 0.995
@@ -233,7 +267,12 @@ class Simulation:
                     generation=animal.generation + 1,
                     parent_id=animal.id,
                     heading=(animal.heading + self.rng.choice((-1, 0, 1))) % 4,
-                    instinct=InstinctController(animal.species, cfg.instinct_strength),
+                    instinct=InstinctController(
+                        animal.species,
+                        cfg.instinct_strength,
+                        cfg.reproduce_energy / cfg.max_energy,
+                        cfg.maturity_age / cfg.max_age,
+                    ),
                     adaptive_policy=child_policy,
                     arbiter=ActionArbiter(),
                     reproduction_progress=0.0,
@@ -264,16 +303,23 @@ class Simulation:
         if self.step_count % self.config.history_interval == 0:
             self._record_history()
 
-    def _resolve_hunts(self, predators: list[Organism], rewards: dict[int, float]) -> None:
+    def _resolve_hunts(
+        self,
+        predators: list[Organism],
+        decisions: dict[int, EmbodiedAction],
+        rewards: dict[int, float],
+    ) -> None:
         prey_by_cell: dict[tuple[int, int], list[Organism]] = defaultdict(list)
         for prey in self.species("herbivore"):
             prey_by_cell[(prey.x, prey.y)].append(prey)
         for predator in predators:
             if predator.id not in self.organisms:
                 continue
+            if decisions[predator.id].interaction != Interaction.ATTACK:
+                continue
             candidates = prey_by_cell.get((predator.x, predator.y), [])
             if not candidates:
-                rewards[predator.id] = rewards.get(predator.id, 0.0) - 0.07
+                rewards[predator.id] = rewards.get(predator.id, 0.0) - 0.18
                 continue
             self.metrics.hunt_attempts += 1
             prey = self.rng.choice(candidates)
@@ -288,6 +334,7 @@ class Simulation:
             self.organisms.pop(prey.id)
             gain = max(3.0, prey.energy * self.config.prey_energy_fraction)
             predator.energy = min(self.config.predator.max_energy, predator.energy + gain)
+            self.metrics.energy_gained_predator += gain
             predator.meals += 1
             rewards[predator.id] = rewards.get(predator.id, 0.0) + 3.2 + gain / 10.0
             rewards[prey.id] = rewards.get(prey.id, 0.0) - 4.0

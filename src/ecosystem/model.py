@@ -88,6 +88,17 @@ class Metrics:
     learning_updates: int = 0
     actions_herbivore: list[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
     actions_predator: list[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
+    efforts_herbivore: list[int] = field(default_factory=lambda: [0, 0, 0])
+    efforts_predator: list[int] = field(default_factory=lambda: [0, 0, 0])
+    interactions_herbivore: list[int] = field(default_factory=lambda: [0, 0, 0])
+    interactions_predator: list[int] = field(default_factory=lambda: [0, 0, 0])
+    reproduction_intents_herbivore: int = 0
+    reproduction_intents_predator: int = 0
+    energy_spent_herbivore: float = 0.0
+    energy_spent_predator: float = 0.0
+    energy_gained_herbivore: float = 0.0
+    energy_gained_predator: float = 0.0
+    unnecessary_sprints: int = 0
     history: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -106,6 +117,17 @@ class Metrics:
             "learning_updates": self.learning_updates,
             "actions_herbivore": self.actions_herbivore,
             "actions_predator": self.actions_predator,
+            "efforts_herbivore": self.efforts_herbivore,
+            "efforts_predator": self.efforts_predator,
+            "interactions_herbivore": self.interactions_herbivore,
+            "interactions_predator": self.interactions_predator,
+            "reproduction_intents_herbivore": self.reproduction_intents_herbivore,
+            "reproduction_intents_predator": self.reproduction_intents_predator,
+            "energy_spent_herbivore": self.energy_spent_herbivore,
+            "energy_spent_predator": self.energy_spent_predator,
+            "energy_gained_herbivore": self.energy_gained_herbivore,
+            "energy_gained_predator": self.energy_gained_predator,
+            "unnecessary_sprints": self.unnecessary_sprints,
             "history": self.history,
         }
 
@@ -115,4 +137,15 @@ class Metrics:
         values.setdefault("prey_escapes", 0)
         values.setdefault("actions_herbivore", [0, 0, 0, 0, 0])
         values.setdefault("actions_predator", [0, 0, 0, 0, 0])
+        values.setdefault("efforts_herbivore", [0, 0, 0])
+        values.setdefault("efforts_predator", [0, 0, 0])
+        values.setdefault("interactions_herbivore", [0, 0, 0])
+        values.setdefault("interactions_predator", [0, 0, 0])
+        values.setdefault("reproduction_intents_herbivore", 0)
+        values.setdefault("reproduction_intents_predator", 0)
+        values.setdefault("energy_spent_herbivore", 0.0)
+        values.setdefault("energy_spent_predator", 0.0)
+        values.setdefault("energy_gained_herbivore", 0.0)
+        values.setdefault("energy_gained_predator", 0.0)
+        values.setdefault("unnecessary_sprints", 0)
         return cls(**values)

@@ -6,6 +6,8 @@ import csv
 import json
 from pathlib import Path
 
+from .actions import Effort, Interaction, Locomotion
+from .perception import OBSERVATION_SIZE, channel_index
 from .simulation import Simulation
 
 
@@ -15,30 +17,38 @@ def summary(simulation: Simulation) -> dict:
     steps = max(1, simulation.step_count)
     prey_actions = simulation.metrics.actions_herbivore
     predator_actions = simulation.metrics.actions_predator
-    neutral = [1.0, 0.5, 0.25, 0.5] + [0.0] * 12
-    opposites = (3, 4, 1, 2)
-    flee_response = 0.0
-    for animal in herbivores:
-        for direction, safe_action in enumerate(opposites):
-            probe = neutral[:]
-            probe[12 + direction] = 1.0
-            flee_response += animal.arbiter.probabilities(
-                animal.instinct.preferences(probe),
-                animal.adaptive_policy.preferences(probe),
-                simulation.learning,
-            )[safe_action]
-    flee_response /= max(1, len(herbivores) * 4)
-    pursuit_response = 0.0
-    for animal in predators:
-        for direction in range(4):
-            probe = neutral[:]
-            probe[8 + direction] = 1.0
-            pursuit_response += animal.arbiter.probabilities(
-                animal.instinct.preferences(probe),
-                animal.adaptive_policy.preferences(probe),
-                simulation.learning,
-            )[direction + 1]
-    pursuit_response /= max(1, len(predators) * 4)
+    def probe(energy: float = 0.5, food_here: float = 0.0) -> list[float]:
+        result = [1.0, energy, 0.25, 1.0 - energy, food_here, 0.0]
+        return result + [0.0] * (OBSERVATION_SIZE - len(result))
+
+    def probabilities(animal, observation):
+        return animal.arbiter.probabilities(
+            animal.instinct.preferences(observation),
+            animal.adaptive_policy.preferences(observation),
+            simulation.learning,
+        )
+
+    hungry_food = probe(energy=0.2)
+    hungry_food[channel_index("plants", 1, 0)] = 1.0
+    danger_ahead = probe(energy=0.5)
+    danger_ahead[channel_index("predators", 1, 0)] = 1.0
+    prey_ahead = probe(energy=0.35)
+    prey_ahead[channel_index("herbivores", 1, 0)] = 1.0
+    prey_here = probe(energy=0.35)
+    prey_here[channel_index("herbivores", 0, 0)] = 1.0
+    satiated = probe(energy=0.9)
+
+    food_approach = sum(probabilities(a, hungry_food)[Locomotion.FORWARD] for a in herbivores) / max(1, len(herbivores))
+    flee_turn = sum(
+        probabilities(a, danger_ahead)[Locomotion.TURN_LEFT]
+        + probabilities(a, danger_ahead)[Locomotion.TURN_RIGHT]
+        for a in herbivores
+    ) / max(1, len(herbivores))
+    flee_sprint = sum(probabilities(a, danger_ahead)[4 + Effort.SPRINT] for a in herbivores) / max(1, len(herbivores))
+    pursuit = sum(probabilities(a, prey_ahead)[Locomotion.FORWARD] for a in predators) / max(1, len(predators))
+    attack = sum(probabilities(a, prey_here)[7 + Interaction.ATTACK] for a in predators) / max(1, len(predators))
+    conserve = sum(probabilities(a, satiated)[4 + Effort.LOW] for a in predators) / max(1, len(predators))
+    all_efforts = sum(simulation.metrics.efforts_herbivore) + sum(simulation.metrics.efforts_predator)
     return {
         "seed": simulation.seed,
         "learning": simulation.learning,
@@ -66,8 +76,39 @@ def summary(simulation: Simulation) -> dict:
         "hunts_per_1000_predator_actions": round(
             1000.0 * simulation.metrics.hunts / max(1, sum(predator_actions)), 4
         ),
-        "prey_flee_response": round(flee_response, 4),
-        "predator_pursuit_response": round(pursuit_response, 4),
+        "food_energy_per_herbivore_energy_spent": round(
+            simulation.metrics.energy_gained_herbivore
+            / max(0.001, simulation.metrics.energy_spent_herbivore), 4
+        ),
+        "hunt_energy_per_predator_energy_spent": round(
+            simulation.metrics.energy_gained_predator
+            / max(0.001, simulation.metrics.energy_spent_predator), 4
+        ),
+        "herbivore_sprint_fraction": round(
+            simulation.metrics.efforts_herbivore[Effort.SPRINT]
+            / max(1, sum(simulation.metrics.efforts_herbivore)), 4
+        ),
+        "predator_sprint_fraction": round(
+            simulation.metrics.efforts_predator[Effort.SPRINT]
+            / max(1, sum(simulation.metrics.efforts_predator)), 4
+        ),
+        "unnecessary_sprint_fraction": round(
+            simulation.metrics.unnecessary_sprints / max(1, all_efforts), 4
+        ),
+        "herbivore_births_per_1000_intents": round(
+            1000.0 * simulation.metrics.births_herbivore
+            / max(1, simulation.metrics.reproduction_intents_herbivore), 4
+        ),
+        "predator_births_per_1000_intents": round(
+            1000.0 * simulation.metrics.births_predator
+            / max(1, simulation.metrics.reproduction_intents_predator), 4
+        ),
+        "hungry_food_approach": round(food_approach, 4),
+        "prey_flee_turn": round(flee_turn, 4),
+        "prey_flee_sprint": round(flee_sprint, 4),
+        "predator_pursuit": round(pursuit, 4),
+        "predator_attack": round(attack, 4),
+        "predator_energy_conservation": round(conserve, 4),
     }
 
 
