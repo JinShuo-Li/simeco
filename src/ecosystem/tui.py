@@ -6,6 +6,7 @@ import curses
 import time
 from pathlib import Path
 
+from .actions import Effort, Interaction, Locomotion, Reproduction
 from .simulation import Simulation
 from .snapshot import load_snapshot, save_snapshot
 
@@ -105,7 +106,7 @@ class TerminalUI:
         height, width = screen.getmaxyx()
         sim = self.simulation
         mode = "INSTINCT+LEARNING" if sim.learning else "INSTINCT ONLY"
-        header = f" LIVING ECOSYSTEM V2  step {sim.step_count:,}  {'PAUSED' if self.paused else f'{self.speed}x'}  {mode} "
+        header = f" LIVING ECOSYSTEM V3  step {sim.step_count:,}  {'PAUSED' if self.paused else f'{self.speed}x'}  {mode} "
         self._put(screen, 0, 0, header, curses.A_REVERSE)
         map_height = min(sim.config.height, max(3, height - 5))
         side_width = 30 if width >= 76 else 0
@@ -176,10 +177,20 @@ class TerminalUI:
         self._put(screen, footer_y, 0, "q quit  space pause  +/- speed  s save  l load  i inspect", curses.A_REVERSE)
         selected = sim.organisms.get(self.selected_id) if self.selected_id is not None else None
         if selected:
+            heading = "^>v<"[selected.heading]
+            heads = selected.arbiter.last_actions
+            action = ""
+            if heads is not None:
+                action = (
+                    f" action={Locomotion(heads[0]).name.lower()}/"
+                    f"{Effort(heads[1]).name.lower()}/"
+                    f"{Interaction(heads[2]).name.lower()}/"
+                    f"{Reproduction(heads[3]).name.lower()}"
+                )
             detail = (
-                f"#{selected.id} {selected.species} E={selected.energy:.1f} age={selected.age} "
+                f"#{selected.id} {selected.species} {heading} E={selected.energy:.1f} age={selected.age} "
                 f"gen={selected.generation} meals={selected.meals} children={selected.offspring_count} "
-                f"reward={selected.lifetime_reward:.1f} updates={selected.adaptive_policy.updates}"
+                f"reward={selected.lifetime_reward:.1f} updates={selected.adaptive_policy.updates}{action}"
             )
             self._put(screen, footer_y + 1, 0, detail, curses.color_pair(4) if curses.has_colors() else 0)
         elif self.message:
