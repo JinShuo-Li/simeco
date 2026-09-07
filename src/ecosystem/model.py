@@ -21,6 +21,7 @@ class Organism:
     lifetime_reward: float = 0.0
     meals: int = 0
     offspring_count: int = 0
+    action_counts: list[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
 
     def to_dict(self) -> dict:
         return {
@@ -36,12 +37,14 @@ class Organism:
             "lifetime_reward": self.lifetime_reward,
             "meals": self.meals,
             "offspring_count": self.offspring_count,
+            "action_counts": self.action_counts,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "Organism":
         data = dict(data)
         data["policy"] = TinyMLP.from_dict(data["policy"])
+        data.setdefault("action_counts", [0, 0, 0, 0, 0])
         return cls(**data)
 
 

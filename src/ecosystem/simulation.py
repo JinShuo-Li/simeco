@@ -136,6 +136,7 @@ class Simulation:
             cfg = self.config.herbivore if animal.species == "herbivore" else self.config.predator
             observation = self.observe(animal, herbivores, predators)
             action = animal.policy.choose(observation, self.rng)
+            animal.action_counts[action] += 1
             dx, dy = ACTIONS[action]
             occupied[(animal.x, animal.y)] -= 1
             animal.x = (animal.x + dx) % self.config.width
