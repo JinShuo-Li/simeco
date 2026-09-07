@@ -41,6 +41,23 @@ class PerceptionTests(unittest.TestCase):
         self.assertAlmostEqual(observation[1], 0.25)
         self.assertAlmostEqual(observation[3], 0.75)
 
+    def test_distant_animals_are_binned_relative_to_heading(self):
+        simulation = Simulation(seed=6)
+        herbivore = simulation.species("herbivore")[0]
+        predator = simulation.species("predator")[0]
+        predator.x = herbivore.x
+        predator.y = (herbivore.y - 3) % simulation.config.height
+        herbivore.heading = 0
+        north_facing = simulation.observe(
+            herbivore, simulation.species("herbivore"), [predator]
+        )
+        herbivore.heading = 1
+        east_facing = simulation.observe(
+            herbivore, simulation.species("herbivore"), [predator]
+        )
+        self.assertGreater(north_facing[channel_index("predators", 1, 0)], 0.0)
+        self.assertGreater(east_facing[channel_index("predators", 0, -1)], 0.0)
+
 
 if __name__ == "__main__":
     unittest.main()

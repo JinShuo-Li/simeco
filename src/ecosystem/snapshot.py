@@ -13,7 +13,7 @@ from .model import Metrics, Organism
 from .simulation import Simulation
 
 SNAPSHOT_FORMAT = "living-ecosystem"
-SNAPSHOT_VERSION = 2
+SNAPSHOT_VERSION = 3
 
 
 def save_snapshot(simulation: Simulation, path: str | Path) -> Path:
@@ -57,7 +57,7 @@ def load_snapshot(path: str | Path) -> Simulation:
         payload = json.load(handle)
     if payload.get("format") != SNAPSHOT_FORMAT:
         raise ValueError("not a Living Ecosystem snapshot")
-    if payload.get("version") not in (1, SNAPSHOT_VERSION):
+    if payload.get("version") != SNAPSHOT_VERSION:
         raise ValueError(f"unsupported snapshot version: {payload.get('version')}")
 
     simulation = Simulation.__new__(Simulation)

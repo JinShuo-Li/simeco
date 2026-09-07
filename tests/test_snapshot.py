@@ -25,20 +25,24 @@ class SnapshotTests(unittest.TestCase):
         )
         self.assertEqual(simulation.metrics.to_dict(), restored.metrics.to_dict())
 
-    def test_v2_snapshot_contains_each_controller_state(self):
+    def test_v3_snapshot_contains_embodied_controller_state(self):
         simulation = Simulation(seed=7, learning=False)
         simulation.run(2)
         with tempfile.TemporaryDirectory() as directory:
             path = save_snapshot(simulation, Path(directory) / "state.eco.gz")
             with gzip.open(path, "rt", encoding="utf-8") as handle:
                 payload = json.load(handle)
-        self.assertEqual(payload["version"], 2)
+        self.assertEqual(payload["version"], 3)
         self.assertEqual(payload["controller_mode"], "instinct_only")
         animal = payload["organisms"][0]
         self.assertIn("instinct", animal)
         self.assertIn("adaptive_policy", animal)
         self.assertIn("arbiter", animal)
         self.assertIn("reproduction_progress", animal)
+        self.assertIn("heading", animal)
+        self.assertEqual(animal["adaptive_policy"]["inputs"], 33)
+        self.assertEqual(animal["adaptive_policy"]["outputs"], 12)
+        self.assertEqual(len(animal["arbiter"]["last_actions"]), 4)
 
 
 if __name__ == "__main__":

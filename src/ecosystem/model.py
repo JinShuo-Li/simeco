@@ -26,7 +26,7 @@ class Organism:
     meals: int = 0
     offspring_count: int = 0
     reproduction_progress: float = 0.0
-    action_counts: list[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
+    action_counts: list[int] = field(default_factory=lambda: [0, 0, 0, 0])
 
     def to_dict(self) -> dict:
         return {
@@ -61,7 +61,7 @@ class Organism:
             values.get("instinct", {"species": values["species"]})
         )
         values["arbiter"] = ActionArbiter.from_dict(values.get("arbiter", {}))
-        values.setdefault("action_counts", [0, 0, 0, 0, 0])
+        values.setdefault("action_counts", [0, 0, 0, 0])
         values.setdefault("reproduction_progress", 0.0)
         values.setdefault("heading", 0)
         return cls(**values)
@@ -86,8 +86,8 @@ class Metrics:
     reward_herbivore: float = 0.0
     reward_predator: float = 0.0
     learning_updates: int = 0
-    actions_herbivore: list[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
-    actions_predator: list[int] = field(default_factory=lambda: [0, 0, 0, 0, 0])
+    actions_herbivore: list[int] = field(default_factory=lambda: [0, 0, 0, 0])
+    actions_predator: list[int] = field(default_factory=lambda: [0, 0, 0, 0])
     efforts_herbivore: list[int] = field(default_factory=lambda: [0, 0, 0])
     efforts_predator: list[int] = field(default_factory=lambda: [0, 0, 0])
     interactions_herbivore: list[int] = field(default_factory=lambda: [0, 0, 0])
@@ -135,8 +135,8 @@ class Metrics:
     def from_dict(cls, data: dict) -> "Metrics":
         values = dict(data)
         values.setdefault("prey_escapes", 0)
-        values.setdefault("actions_herbivore", [0, 0, 0, 0, 0])
-        values.setdefault("actions_predator", [0, 0, 0, 0, 0])
+        values.setdefault("actions_herbivore", [0, 0, 0, 0])
+        values.setdefault("actions_predator", [0, 0, 0, 0])
         values.setdefault("efforts_herbivore", [0, 0, 0])
         values.setdefault("efforts_predator", [0, 0, 0])
         values.setdefault("interactions_herbivore", [0, 0, 0])
