@@ -27,6 +27,56 @@ class SpeciesConfig:
 class WorldConfig:
     width: int = 48
     height: int = 22
+    plant_capacity: float = 12.0
+    initial_plant_fraction: float = 0.72
+    plant_growth: float = 0.032
+    plant_spread: float = 0.025
+    plant_bite: float = 1.8
+    plant_energy: float = 1.05
+    prey_energy_fraction: float = 0.72
+    crowding_cost: float = 0.055
+    reproduction_chance: float = 0.045
+    history_interval: int = 10
+    herbivore: SpeciesConfig = field(
+        default_factory=lambda: SpeciesConfig(
+            initial_count=105,
+            initial_energy=11.0,
+            max_energy=24.0,
+            move_cost=0.30,
+            idle_cost=0.20,
+            reproduce_energy=17.0,
+            reproduce_cost=7.0,
+            maturity_age=25,
+            max_age=340,
+            vision=4,
+            learning_rate=0.030,
+        )
+    )
+    predator: SpeciesConfig = field(
+        default_factory=lambda: SpeciesConfig(
+            initial_count=18,
+            initial_energy=18.0,
+            max_energy=42.0,
+            move_cost=0.38,
+            idle_cost=0.29,
+            reproduce_energy=32.0,
+            reproduce_cost=13.0,
+            maturity_age=35,
+            max_age=430,
+            vision=6,
+            learning_rate=0.040,
+        )
+    )
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "WorldConfig":
+        values = dict(data)
+        values["herbivore"] = SpeciesConfig(**values["herbivore"])
+        values["predator"] = SpeciesConfig(**values["predator"])
+        return cls(**values)
     plant_capacity: float = 10.0
     plant_growth: float = 0.07
     plant_spread: float = 0.025
