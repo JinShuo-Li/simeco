@@ -29,6 +29,9 @@ def save_snapshot(simulation: Simulation, path: str | Path) -> Path:
         "controller_mode": simulation.controller_mode,
         "memory": simulation.memory,
         "social_memory": simulation.social_memory,
+        "social_identity_shuffle": simulation.social_identity_shuffle,
+        "social_embeddings": simulation.social_embeddings,
+        "reverse_entity_order": simulation.reverse_entity_order,
         "next_id": simulation.next_id,
         "config": simulation.config.to_dict(),
         "resources": simulation.resources,
@@ -68,6 +71,9 @@ def load_snapshot(path: str | Path) -> Simulation:
     simulation.learning = payload["learning"]
     simulation.memory = payload["memory"]
     simulation.social_memory = payload["social_memory"]
+    simulation.social_identity_shuffle = payload["social_identity_shuffle"]
+    simulation.social_embeddings = payload["social_embeddings"]
+    simulation.reverse_entity_order = payload["reverse_entity_order"]
     simulation.step_count = payload["step"]
     simulation.next_id = payload["next_id"]
     simulation.resources = payload["resources"]

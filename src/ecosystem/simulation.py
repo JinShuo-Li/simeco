@@ -34,6 +34,9 @@ class Simulation:
         learning: bool = True,
         memory: bool | None = None,
         social_memory: bool | None = None,
+        social_identity_shuffle: bool = False,
+        social_embeddings: bool = True,
+        reverse_entity_order: bool = False,
     ):
         self.config = config or WorldConfig()
         self.seed = seed
@@ -42,6 +45,9 @@ class Simulation:
         self.social_memory = (
             self.memory if social_memory is None else self.memory and social_memory
         )
+        self.social_identity_shuffle = social_identity_shuffle
+        self.social_embeddings = social_embeddings
+        self.reverse_entity_order = reverse_entity_order
         self.rng = random.Random(seed)
         self.step_count = 0
         self.next_id = 1
@@ -151,6 +157,14 @@ class Simulation:
             instinct_preferences = animal.instinct.preferences(observation)
             previous_action = animal.arbiter.last_actions
             social_slots = visible_individuals(animal, order, self.config, cfg)
+            if self.social_identity_shuffle and len(social_slots)>1:
+                identities=[slot["id"] for slot in social_slots]
+                social_slots=[
+                    {**slot,"id":identities[(index+1)%len(identities)]}
+                    for index,slot in enumerate(social_slots)
+                ]
+            if self.reverse_entity_order:
+                social_slots=list(reversed(social_slots))
             adaptive_preferences = (
                 animal.adaptive_policy.advance(
                     observation,
@@ -158,6 +172,7 @@ class Simulation:
                     social_slots=social_slots if self.social_memory else None,
                     social_enabled=self.social_memory,
                     step=self.step_count,
+                    social_embeddings_enabled=self.social_embeddings,
                 )
                 if self.learning
                 else [0.0] * TOTAL_ACTION_OUTPUTS

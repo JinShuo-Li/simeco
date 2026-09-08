@@ -36,6 +36,9 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(payload["controller_mode"], "instinct+learning+memory+social")
         self.assertTrue(payload["memory"])
         self.assertTrue(payload["social_memory"])
+        self.assertTrue(payload["social_embeddings"])
+        self.assertFalse(payload["social_identity_shuffle"])
+        self.assertFalse(payload["reverse_entity_order"])
         animal = payload["organisms"][0]
         self.assertIn("instinct", animal)
         self.assertIn("adaptive_policy", animal)

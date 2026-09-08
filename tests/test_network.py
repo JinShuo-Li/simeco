@@ -125,6 +125,27 @@ class AdaptivePolicyTests(unittest.TestCase):
         for before, after in zip(first, second):
             self.assertAlmostEqual(before, after, places=12)
 
+    def test_disabling_retrieved_embeddings_removes_identity_effect(self):
+        policy = AdaptivePolicy.random(33, 16, TOTAL_ACTION_OUTPUTS, random.Random(30))
+        policy.social_memory = {
+            identity: {
+                "embedding": embedding, "encounters": 2, "created_at": 0,
+                "last_seen": 1, "consecutive_encounters": 1, "max_streak": 1,
+                "distance_sum": 0.5, "outcome_trace": 0.0,
+            }
+            for identity, embedding in ((1, [1.0, 0.0, 0.0, 0.0]), (2, [-1.0, 0.0, 0.0, 0.0]))
+        }
+        physical = [0.0] * SOCIAL_PHYSICAL_SIZE
+        results = [
+            policy.preferences(
+                [0.0] * 33, use_memory=False,
+                social_slots=[{"id": identity, "features": physical}],
+                social_enabled=True, social_embeddings_enabled=False,
+            )
+            for identity in (1, 2)
+        ]
+        self.assertEqual(results[0], results[1])
+
     def test_offspring_does_not_inherit_social_memories(self):
         policy = AdaptivePolicy.random(33, 16, TOTAL_ACTION_OUTPUTS, random.Random(20))
         policy.social_memory[7] = {

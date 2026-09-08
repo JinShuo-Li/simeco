@@ -149,7 +149,10 @@ class AdaptivePolicy:
         else:
             self.social_evictions_capacity+=1
 
-    def _social_observation(self, observation, social_slots, social_enabled, step, update_entries):
+    def _social_observation(
+        self, observation, social_slots, social_enabled, step, update_entries,
+        embeddings_enabled=True,
+    ):
         if not social_enabled:
             return list(observation)+[0.0]*SOCIAL_AGGREGATE_SIZE, [], {
                 "entities":[], "max_indices":[]
@@ -185,7 +188,10 @@ class AdaptivePolicy:
                 entry["max_streak"]=max(entry.get("max_streak",0),entry["consecutive_encounters"])
                 entry["encounters"]+=1; entry["last_seen"]=step
                 entry["distance_sum"]=entry.get("distance_sum",0.0)+slot["features"][2]
-            entity_input=list(slot["features"])+list(entry["embedding"])
+            entity_input=list(slot["features"])+(
+                list(entry["embedding"]) if embeddings_enabled
+                else [0.0]*SOCIAL_EMBEDDING_SIZE
+            )
             representation=[
                 math.tanh(sum(weight*value for weight,value in zip(row,entity_input))+bias)
                 for row,bias in zip(self.entity_w,self.entity_b)
@@ -244,9 +250,13 @@ class AdaptivePolicy:
                 "context":context,"update_gate":update,"reset_gate":reset,
                 "candidate":candidate,"memory_after":new,"raw":raw,"use_memory":use_memory}
 
-    def advance(self, observation, use_memory=True, social_slots=None, social_enabled=False, step=0):
+    def advance(
+        self, observation, use_memory=True, social_slots=None, social_enabled=False,
+        step=0, social_embeddings_enabled=True,
+    ):
         adaptive_observation, social_keys, social_cache = self._social_observation(
-            observation, social_slots, social_enabled, step, True
+            observation, social_slots, social_enabled, step, True,
+            social_embeddings_enabled,
         )
         transition = self._transition(adaptive_observation, use_memory)
         transition["social_keys"]=social_keys
@@ -256,9 +266,13 @@ class AdaptivePolicy:
         self._pending = transition
         return [math.tanh(v) * self.residual_scale for v in transition["raw"]]
 
-    def preferences(self, observation, use_memory=True, social_slots=None, social_enabled=False, step=0):
+    def preferences(
+        self, observation, use_memory=True, social_slots=None, social_enabled=False,
+        step=0, social_embeddings_enabled=True,
+    ):
         adaptive_observation,_,_ = self._social_observation(
-            observation, social_slots, social_enabled, step, False
+            observation, social_slots, social_enabled, step, False,
+            social_embeddings_enabled,
         )
         return [math.tanh(v)*self.residual_scale for v in self._transition(adaptive_observation,use_memory)["raw"]]
 

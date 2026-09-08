@@ -15,6 +15,7 @@ from .snapshot import load_snapshot, save_snapshot
 
 def _simulation(args: argparse.Namespace) -> Simulation:
     requested_mode = getattr(args, "controller_mode", None)
+    ablation = getattr(args, "social_ablation", "none")
     if getattr(args, "load", None):
         simulation = load_snapshot(args.load)
         if requested_mode is not None:
@@ -23,6 +24,9 @@ def _simulation(args: argparse.Namespace) -> Simulation:
                 "instinct+learning+memory", "instinct+learning+memory+social"
             )
             simulation.social_memory = requested_mode == "instinct+learning+memory+social"
+        simulation.social_identity_shuffle = ablation == "identity-shuffled"
+        simulation.social_embeddings = ablation != "embeddings-disabled"
+        simulation.reverse_entity_order = ablation == "order-reversed"
         return simulation
     mode = requested_mode or "instinct+learning+memory+social"
     return Simulation(
@@ -30,12 +34,22 @@ def _simulation(args: argparse.Namespace) -> Simulation:
         learning=mode != "instinct_only",
         memory=mode in ("instinct+learning+memory", "instinct+learning+memory+social"),
         social_memory=mode == "instinct+learning+memory+social",
+        social_identity_shuffle=ablation == "identity-shuffled",
+        social_embeddings=ablation != "embeddings-disabled",
+        reverse_entity_order=ablation == "order-reversed",
     )
 
 
 def run_batch(args: argparse.Namespace) -> int:
     simulation = _simulation(args)
-    simulation.run(args.steps)
+    reset_at=getattr(args,"reset_social_at",None)
+    if reset_at is not None and 0<reset_at<args.steps:
+        simulation.run(reset_at)
+        for animal in simulation.organisms.values():
+            animal.adaptive_policy.reset_social_memory()
+        simulation.run(args.steps-reset_at)
+    else:
+        simulation.run(args.steps)
     if args.metrics:
         write_history(simulation, args.metrics)
     if args.snapshot:
@@ -142,6 +156,12 @@ def parser() -> argparse.ArgumentParser:
     batch.add_argument("--load", metavar="SNAPSHOT")
     batch.add_argument("--snapshot", metavar="PATH")
     batch.add_argument("--metrics", metavar="CSV")
+    batch.add_argument(
+        "--social-ablation",
+        choices=("none","identity-shuffled","embeddings-disabled","order-reversed"),
+        default="none",
+    )
+    batch.add_argument("--reset-social-at", type=int, metavar="STEP")
     learning = batch.add_mutually_exclusive_group()
     learning.add_argument(
         "--learning", "--social-learning", action="store_const",
