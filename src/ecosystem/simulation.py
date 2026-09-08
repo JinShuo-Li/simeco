@@ -439,6 +439,13 @@ class Simulation:
         herbivores = self.species("herbivore")
         predators = self.species("predator")
         count = self.config.width * self.config.height
+        social_stats=[
+            animal.adaptive_policy.social_statistics(self.step_count)
+            for animal in self.organisms.values()
+        ]
+        mean_social=lambda name: sum(item[name] for item in social_stats)/max(1,len(social_stats))
+        prey_actions=sum(self.metrics.actions_herbivore)
+        predator_actions=sum(self.metrics.actions_predator)
         self.metrics.history.append(
             {
                 "step": self.step_count,
@@ -449,6 +456,28 @@ class Simulation:
                 "predator_energy": sum(a.energy for a in predators) / max(1, len(predators)),
                 "max_generation": max((a.generation for a in self.organisms.values()), default=0),
                 "hunts": self.metrics.hunts,
+                "starvation": self.metrics.deaths_starvation,
+                "food_energy_efficiency": self.metrics.energy_gained_herbivore
+                / max(.001,self.metrics.energy_spent_herbivore),
+                "hunt_energy_efficiency": self.metrics.energy_gained_predator
+                / max(.001,self.metrics.energy_spent_predator),
+                "herbivore_reward_per_step": self.metrics.reward_herbivore/max(1,self.step_count),
+                "predator_reward_per_step": self.metrics.reward_predator/max(1,self.step_count),
+                "repeated_association": self.metrics.repeated_social_encounters
+                / max(1,self.metrics.social_encounters),
+                "following": self.metrics.follow_actions/max(1,self.metrics.follow_opportunities),
+                "predator_colocation_persistence": self.metrics.repeated_predator_colocations
+                / max(1,self.metrics.predator_colocations),
+                "social_table_occupancy": mean_social("occupancy"),
+                "known_individual_fraction": mean_social("known_fraction"),
+                "social_eviction_rate": mean_social("eviction_rate"),
+                "social_top3_concentration": mean_social("top3_concentration"),
+                "social_dyad_streak": mean_social("mean_max_streak"),
+                "social_distance": mean_social("mean_distance"),
+                "herbivore_sprint_fraction": self.metrics.efforts_herbivore[Effort.SPRINT]
+                / max(1,prey_actions),
+                "predator_sprint_fraction": self.metrics.efforts_predator[Effort.SPRINT]
+                / max(1,predator_actions),
             }
         )
 

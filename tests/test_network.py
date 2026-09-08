@@ -81,8 +81,9 @@ class AdaptivePolicyTests(unittest.TestCase):
         policy = AdaptivePolicy.random(33, 16, TOTAL_ACTION_OUTPUTS, random.Random(19))
         policy.w1 = [[0.0] * policy.inputs for _ in range(policy.hidden)]
         policy.w2 = [[0.0] * policy.hidden for _ in range(policy.outputs)]
-        embedding_column = policy.base_inputs + SOCIAL_PHYSICAL_SIZE
-        policy.w1[0][embedding_column] = 2.0
+        policy.entity_w = [[0.0] * len(policy.entity_w[0]) for _ in policy.entity_w]
+        policy.entity_w[0][SOCIAL_PHYSICAL_SIZE] = 2.0
+        policy.w1[0][policy.base_inputs] = 2.0
         policy.w2[Locomotion.FORWARD][0] = 2.0
         policy.social_memory = {
             101: {"embedding": [1.0, 0.0, 0.0, 0.0], "encounters": 4, "last_seen": 1},
@@ -98,6 +99,31 @@ class AdaptivePolicyTests(unittest.TestCase):
             social_slots=[{"id": 202, "features": physical}], social_enabled=True,
         )
         self.assertGreater(first[Locomotion.FORWARD], second[Locomotion.FORWARD] + 1.0)
+
+    def test_entity_pooling_is_invariant_to_slot_order(self):
+        policy = AdaptivePolicy.random(33, 16, TOTAL_ACTION_OUTPUTS, random.Random(29))
+        policy.social_memory = {
+            identity: {
+                "embedding": [identity / 10.0, 0.1, -0.1, 0.0],
+                "encounters": 2, "created_at": 0, "last_seen": 1,
+                "consecutive_encounters": 1, "max_streak": 1,
+                "distance_sum": 0.5, "outcome_trace": 0.0,
+            }
+            for identity in (1, 2, 3)
+        }
+        slots = [
+            {"id": identity, "features": [identity / 4.0] + [0.0] * (SOCIAL_PHYSICAL_SIZE - 1)}
+            for identity in (1, 2, 3)
+        ]
+        first = policy.preferences(
+            [0.0] * 33, use_memory=False, social_slots=slots, social_enabled=True
+        )
+        second = policy.preferences(
+            [0.0] * 33, use_memory=False, social_slots=list(reversed(slots)),
+            social_enabled=True,
+        )
+        for before, after in zip(first, second):
+            self.assertAlmostEqual(before, after, places=12)
 
     def test_offspring_does_not_inherit_social_memories(self):
         policy = AdaptivePolicy.random(33, 16, TOTAL_ACTION_OUTPUTS, random.Random(20))

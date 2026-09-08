@@ -13,7 +13,7 @@ from .model import Metrics, Organism
 from .simulation import Simulation
 
 SNAPSHOT_FORMAT = "living-ecosystem"
-SNAPSHOT_VERSION = 6
+SNAPSHOT_VERSION = 7
 
 
 def save_snapshot(simulation: Simulation, path: str | Path) -> Path:

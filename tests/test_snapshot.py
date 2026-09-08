@@ -32,7 +32,7 @@ class SnapshotTests(unittest.TestCase):
             path = save_snapshot(simulation, Path(directory) / "state.eco.gz")
             with gzip.open(path, "rt", encoding="utf-8") as handle:
                 payload = json.load(handle)
-        self.assertEqual(payload["version"], 6)
+        self.assertEqual(payload["version"], 7)
         self.assertEqual(payload["controller_mode"], "instinct+learning+memory+social")
         self.assertTrue(payload["memory"])
         self.assertTrue(payload["social_memory"])
@@ -42,7 +42,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertIn("arbiter", animal)
         self.assertIn("reproduction_progress", animal)
         self.assertIn("heading", animal)
-        self.assertEqual(animal["adaptive_policy"]["inputs"], 177)
+        self.assertEqual(animal["adaptive_policy"]["inputs"], 49)
         self.assertEqual(animal["adaptive_policy"]["base_inputs"], 33)
         self.assertEqual(animal["adaptive_policy"]["outputs"], 12)
         self.assertEqual(len(animal["adaptive_policy"]["head_baselines"]), 4)
@@ -53,6 +53,10 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(len(animal["adaptive_policy"]["wh"]), 12)
         self.assertIn("trajectory", animal["adaptive_policy"])
         self.assertIn("social_memory", animal["adaptive_policy"])
+        self.assertEqual(len(animal["adaptive_policy"]["entity_w"]), 8)
+        self.assertEqual(len(animal["adaptive_policy"]["entity_w"][0]), 18)
+        self.assertIn("social_evictions_capacity", animal["adaptive_policy"])
+        self.assertIn("social_known_encounters", animal["adaptive_policy"])
         social_entries = [
             entry
             for item in payload["organisms"]

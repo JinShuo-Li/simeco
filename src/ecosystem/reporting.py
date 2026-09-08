@@ -223,6 +223,12 @@ def summary(simulation: Simulation) -> dict:
         probabilities(a, satiated)[Locomotion.FORWARD] for a in predators
     ) / max(1, len(predators))
     all_efforts = sum(simulation.metrics.efforts_herbivore) + sum(simulation.metrics.efforts_predator)
+    social_stats=[
+        animal.adaptive_policy.social_statistics(simulation.step_count)
+        for animal in simulation.organisms.values()
+    ]
+    def mean_social(name):
+        return sum(item[name] for item in social_stats)/max(1,len(social_stats))
     result = {
         "seed": simulation.seed,
         "learning": simulation.learning,
@@ -296,9 +302,19 @@ def summary(simulation: Simulation) -> dict:
             / max(1, simulation.metrics.predator_colocations), 4
         ),
         "mean_social_memory_entries": round(
-            sum(len(a.adaptive_policy.social_memory) for a in simulation.organisms.values())
-            / max(1, len(simulation.organisms)), 3
+            mean_social("entries"), 3
         ),
+        "social_table_occupancy": round(mean_social("occupancy"),4),
+        "known_individual_encounter_fraction": round(mean_social("known_fraction"),4),
+        "social_eviction_rate": round(mean_social("eviction_rate"),4),
+        "social_capacity_evictions_mean": round(mean_social("capacity_evictions"),3),
+        "social_stale_evictions_mean": round(mean_social("stale_evictions"),3),
+        "social_evicted_entry_lifetime": round(mean_social("evicted_lifetime"),2),
+        "social_current_entry_lifetime": round(mean_social("current_lifetime"),2),
+        "social_mean_encounters_per_entry": round(mean_social("mean_encounters"),2),
+        "social_top3_encounter_concentration": round(mean_social("top3_concentration"),4),
+        "social_mean_dyad_max_streak": round(mean_social("mean_max_streak"),2),
+        "social_mean_normalized_distance": round(mean_social("mean_distance"),4),
         "mean_partner_concentration": round(
             sum(
                 max((entry["encounters"] for entry in a.adaptive_policy.social_memory.values()), default=0)

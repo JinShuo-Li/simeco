@@ -9,8 +9,9 @@ from typing import Any
 from .actions import HEAD_SIZES, TOTAL_ACTION_OUTPUTS, EmbodiedAction
 from .social import (
     MAX_SOCIAL_ENTRIES,
+    ENTITY_HIDDEN_SIZE,
+    SOCIAL_AGGREGATE_SIZE,
     SOCIAL_EMBEDDING_SIZE,
-    SOCIAL_INPUT_SIZE,
     SOCIAL_PHYSICAL_SIZE,
     SOCIAL_SLOT_SIZE,
     SOCIAL_SLOTS,
@@ -69,10 +70,19 @@ class AdaptivePolicy:
     uh: list[list[float]]
     bh: list[float]
     wm_out: list[list[float]]
+    entity_w: list[list[float]]
+    entity_b: list[float]
     base_inputs: int = 33
     social_memory: dict[int, dict[str, Any]] = field(default_factory=dict)
     max_social_entries: int = MAX_SOCIAL_ENTRIES
     social_stale_ticks: int = SOCIAL_STALE_TICKS
+    social_entries_created: int = 0
+    social_total_encounters: int = 0
+    social_known_encounters: int = 0
+    social_evictions_capacity: int = 0
+    social_evictions_stale: int = 0
+    social_evicted_lifetime_total: int = 0
+    social_evicted_entries: int = 0
     residual_scale: float = 1.0
     gamma: float = 0.95
     unroll: int = 8
@@ -100,11 +110,11 @@ class AdaptivePolicy:
         # Keep ecological RNG consumption equal to V3/V4: ten encoder rows.
         legacy = min(LEGACY_HIDDEN, hidden)
         base_inputs = inputs
-        total_inputs = base_inputs + SOCIAL_INPUT_SIZE
+        total_inputs = base_inputs + SOCIAL_AGGREGATE_SIZE
         legacy_weights = _matrix(legacy, base_inputs, rng, math.sqrt(2.0 / base_inputs))
         private = _derived_rng(legacy_weights)
         w1 = [
-            row + [private.gauss(0.0, math.sqrt(1.0 / SOCIAL_INPUT_SIZE)) for _ in range(SOCIAL_INPUT_SIZE)]
+            row + [private.gauss(0.0, math.sqrt(1.0 / SOCIAL_AGGREGATE_SIZE)) for _ in range(SOCIAL_AGGREGATE_SIZE)]
             for row in legacy_weights
         ]
         w1 += _matrix(hidden - legacy, total_inputs, private, math.sqrt(2.0 / total_inputs))
@@ -124,43 +134,90 @@ class AdaptivePolicy:
             _matrix(memory_size, memory_size, private, state_scale),
             [0.0] * memory_size,
             _zeros(outputs, memory_size),
+            _matrix(ENTITY_HIDDEN_SIZE, SOCIAL_SLOT_SIZE, private, math.sqrt(1.0 / SOCIAL_SLOT_SIZE)),
+            [0.0] * ENTITY_HIDDEN_SIZE,
             base_inputs=base_inputs,
             memory=[0.0] * memory_size,
         )
 
+    def _evict_social_entry(self, identity, step, reason):
+        entry=self.social_memory.pop(identity)
+        self.social_evicted_lifetime_total+=max(0,step-entry.get("created_at",step))
+        self.social_evicted_entries+=1
+        if reason=="stale":
+            self.social_evictions_stale+=1
+        else:
+            self.social_evictions_capacity+=1
+
     def _social_observation(self, observation, social_slots, social_enabled, step, update_entries):
         if not social_enabled:
-            return list(observation) + [0.0] * SOCIAL_INPUT_SIZE, [None] * SOCIAL_SLOTS
+            return list(observation)+[0.0]*SOCIAL_AGGREGATE_SIZE, [], {
+                "entities":[], "max_indices":[]
+            }
         if update_entries:
-            stale = [
-                identity for identity, entry in self.social_memory.items()
-                if step - entry["last_seen"] > self.social_stale_ticks
+            stale=[
+                identity for identity,entry in self.social_memory.items()
+                if step-entry["last_seen"]>self.social_stale_ticks
             ]
             for identity in stale:
-                del self.social_memory[identity]
-        values=[]; keys=[]
+                self._evict_social_entry(identity,step,"stale")
+        entities=[]; keys=[]
         for slot in (social_slots or [])[:SOCIAL_SLOTS]:
-            identity=int(slot["id"])
-            entry=self.social_memory.get(identity)
+            identity=int(slot["id"]); entry=self.social_memory.get(identity)
+            known=entry is not None
             if entry is None:
                 entry={
                     "embedding":[0.0]*SOCIAL_EMBEDDING_SIZE,
-                    "encounters":0, "last_seen":step, "outcome_trace":0.0,
+                    "encounters":0,"created_at":step,"last_seen":step,
+                    "consecutive_encounters":0,"max_streak":0,
+                    "distance_sum":0.0,"outcome_trace":0.0,
                 }
                 if update_entries:
                     self.social_memory[identity]=entry
+                    self.social_entries_created+=1
             if update_entries:
+                self.social_total_encounters+=1
+                self.social_known_encounters+=int(known)
+                entry["consecutive_encounters"]=(
+                    entry.get("consecutive_encounters",0)+1
+                    if known and entry["last_seen"]==step-1 else 1
+                )
+                entry["max_streak"]=max(entry.get("max_streak",0),entry["consecutive_encounters"])
                 entry["encounters"]+=1; entry["last_seen"]=step
-            values += list(slot["features"]) + list(entry["embedding"])
+                entry["distance_sum"]=entry.get("distance_sum",0.0)+slot["features"][2]
+            entity_input=list(slot["features"])+list(entry["embedding"])
+            representation=[
+                math.tanh(sum(weight*value for weight,value in zip(row,entity_input))+bias)
+                for row,bias in zip(self.entity_w,self.entity_b)
+            ]
+            entities.append({"id":identity,"input":entity_input,"representation":representation})
             keys.append(identity)
-        while len(keys)<SOCIAL_SLOTS:
-            values += [0.0]*SOCIAL_SLOT_SIZE; keys.append(None)
         if update_entries and len(self.social_memory)>self.max_social_entries:
-            for identity,_ in sorted(
-                self.social_memory.items(), key=lambda item:(item[1]["last_seen"],item[1]["encounters"])
-            )[:len(self.social_memory)-self.max_social_entries]:
-                del self.social_memory[identity]
-        return list(observation)+values, keys
+            victims=sorted(
+                self.social_memory.items(),
+                key=lambda item:(item[1]["last_seen"],item[1]["encounters"])
+            )[:len(self.social_memory)-self.max_social_entries]
+            for identity,_ in victims:
+                self._evict_social_entry(identity,step,"capacity")
+        if not entities:
+            aggregate=[0.0]*SOCIAL_AGGREGATE_SIZE; max_indices=[]
+        else:
+            count=len(entities)
+            mean=[
+                sum(entity["representation"][index] for entity in entities)/count
+                for index in range(ENTITY_HIDDEN_SIZE)
+            ]
+            max_indices=[
+                max(range(count),key=lambda entity:indexed[entity])
+                for indexed in ([item["representation"][index] for item in entities]
+                                for index in range(ENTITY_HIDDEN_SIZE))
+            ]
+            maximum=[
+                entities[max_indices[index]]["representation"][index]
+                for index in range(ENTITY_HIDDEN_SIZE)
+            ]
+            aggregate=mean+maximum
+        return list(observation)+aggregate,keys,{"entities":entities,"max_indices":max_indices}
 
     def _transition(self, observation, use_memory):
         encoded = [math.tanh(sum(w*x for w, x in zip(row, observation)) + bias)
@@ -188,18 +245,19 @@ class AdaptivePolicy:
                 "candidate":candidate,"memory_after":new,"raw":raw,"use_memory":use_memory}
 
     def advance(self, observation, use_memory=True, social_slots=None, social_enabled=False, step=0):
-        adaptive_observation, social_keys = self._social_observation(
+        adaptive_observation, social_keys, social_cache = self._social_observation(
             observation, social_slots, social_enabled, step, True
         )
         transition = self._transition(adaptive_observation, use_memory)
         transition["social_keys"]=social_keys
+        transition["social_cache"]=social_cache
         self.memory = transition["memory_after"][:]
         self.last_observation = list(observation)
         self._pending = transition
         return [math.tanh(v) * self.residual_scale for v in transition["raw"]]
 
     def preferences(self, observation, use_memory=True, social_slots=None, social_enabled=False, step=0):
-        adaptive_observation,_ = self._social_observation(
+        adaptive_observation,_,_ = self._social_observation(
             observation, social_slots, social_enabled, step, False
         )
         return [math.tanh(v)*self.residual_scale for v in self._transition(adaptive_observation,use_memory)["raw"]]
@@ -283,16 +341,12 @@ class AdaptivePolicy:
            "wm_out":_zeros(self.outputs,self.memory_size),
            "wz":_zeros(self.memory_size,self.recurrent_inputs),"uz":_zeros(self.memory_size,self.memory_size),"bz":[0.0]*self.memory_size,
            "wr":_zeros(self.memory_size,self.recurrent_inputs),"ur":_zeros(self.memory_size,self.memory_size),"br":[0.0]*self.memory_size,
-           "wh":_zeros(self.memory_size,self.recurrent_inputs),"uh":_zeros(self.memory_size,self.memory_size),"bh":[0.0]*self.memory_size}
-        social_gradients={}; social_associations={}
+           "wh":_zeros(self.memory_size,self.recurrent_inputs),"uh":_zeros(self.memory_size,self.memory_size),"bh":[0.0]*self.memory_size,
+           "entity_w":_zeros(ENTITY_HIDDEN_SIZE,SOCIAL_SLOT_SIZE),
+           "entity_b":[0.0]*ENTITY_HIDDEN_SIZE}
+        social_gradients={}
         dh_future=[0.0]*self.memory_size
         for t,discounted in zip(reversed(self.trajectory),reversed(returns)):
-            association=max(-1.0,min(1.0,sum(discounted)/len(discounted)))
-            for identity in set(t.get("social_keys", [])):
-                if identity is None:
-                    continue
-                total,observations=social_associations.get(identity,(0.0,0))
-                social_associations[identity]=(total+association,observations+1)
             od=self._policy_delta(t,discounted)
             _outer_add(g["w2"],od,t["encoded"]); _outer_add(g["wm_out"],od,t["memory_after"])
             for i,v in enumerate(od): g["b2"][i]+=v
@@ -316,35 +370,54 @@ class AdaptivePolicy:
                 sum(self.w1[hidden][column]*de[hidden] for hidden in range(self.hidden))
                 for column in range(self.inputs)
             ]
-            for slot,identity in enumerate(t.get("social_keys", [])):
-                if identity is None:
-                    continue
-                start=self.base_inputs+slot*SOCIAL_SLOT_SIZE+SOCIAL_PHYSICAL_SIZE
-                gradient=social_gradients.setdefault(identity,[0.0]*SOCIAL_EMBEDDING_SIZE)
-                for i in range(SOCIAL_EMBEDDING_SIZE):
-                    gradient[i]+=input_gradient[start+i]
+            social_cache=t.get("social_cache",{"entities":[],"max_indices":[]})
+            entities=social_cache["entities"]
+            if entities:
+                entity_gradients=[[0.0]*ENTITY_HIDDEN_SIZE for _ in entities]
+                for feature in range(ENTITY_HIDDEN_SIZE):
+                    mean_gradient=input_gradient[self.base_inputs+feature]/len(entities)
+                    for gradient in entity_gradients:
+                        gradient[feature]+=mean_gradient
+                    winner=social_cache["max_indices"][feature]
+                    entity_gradients[winner][feature]+=input_gradient[
+                        self.base_inputs+ENTITY_HIDDEN_SIZE+feature
+                    ]
+                for entity,representation_gradient in zip(entities,entity_gradients):
+                    entity_delta=[
+                        gradient*(1.0-value**2)
+                        for gradient,value in zip(
+                            representation_gradient,entity["representation"]
+                        )
+                    ]
+                    _outer_add(g["entity_w"],entity_delta,entity["input"])
+                    for i,value in enumerate(entity_delta):
+                        g["entity_b"][i]+=value
+                    input_delta=[
+                        sum(self.entity_w[row][column]*entity_delta[row]
+                            for row in range(ENTITY_HIDDEN_SIZE))
+                        for column in range(SOCIAL_SLOT_SIZE)
+                    ]
+                    gradient=social_gradients.setdefault(
+                        entity["id"],[0.0]*SOCIAL_EMBEDDING_SIZE
+                    )
+                    for i in range(SOCIAL_EMBEDDING_SIZE):
+                        gradient[i]+=input_delta[SOCIAL_PHYSICAL_SIZE+i]
             _outer_add(g["w1"],de,t["observation"])
             for i,v in enumerate(de): g["b1"][i]+=v
         scale=rate/count
-        for name in ("w1","w2","wm_out","wz","uz","wr","ur","wh","uh"):
+        for name in ("w1","w2","wm_out","wz","uz","wr","ur","wh","uh","entity_w"):
             for row,grow in zip(getattr(self,name),g[name]):
                 for i,v in enumerate(grow): row[i]+=scale*max(-3.0,min(3.0,v))
-        for name in ("b1","b2","bz","br","bh"):
+        for name in ("b1","b2","bz","br","bh","entity_b"):
             for i,v in enumerate(g[name]): getattr(self,name)[i]+=scale*max(-3.0,min(3.0,v))
-        for identity in set(social_gradients)|set(social_associations):
+        for identity,gradient in social_gradients.items():
             entry=self.social_memory.get(identity)
             if entry is None:
                 continue
-            gradient=social_gradients.get(identity,[0.0]*SOCIAL_EMBEDDING_SIZE)
             entry["embedding"]=[
                 max(-1.0,min(1.0,value+scale*max(-3.0,min(3.0,change))))
                 for value,change in zip(entry["embedding"],gradient)
             ]
-            if identity in social_associations:
-                total,observations=social_associations[identity]
-                entry["embedding"][0]=max(
-                    -1.0,min(1.0,.98*entry["embedding"][0]+.02*total/observations)
-                )
         self.tbptt_updates+=1; self.trajectory.clear()
 
     def reset_runtime_memory(self):
@@ -355,6 +428,28 @@ class AdaptivePolicy:
 
     def reset_social_memory(self):
         self.social_memory.clear()
+
+    def social_statistics(self, step):
+        entries=list(self.social_memory.values())
+        encounters=sum(entry["encounters"] for entry in entries)
+        top_three=sum(sorted((entry["encounters"] for entry in entries),reverse=True)[:3])
+        evictions=self.social_evictions_capacity+self.social_evictions_stale
+        return {
+            "entries":len(entries),
+            "occupancy":len(entries)/max(1,self.max_social_entries),
+            "known_fraction":self.social_known_encounters/max(1,self.social_total_encounters),
+            "eviction_rate":evictions/max(1,self.social_entries_created),
+            "capacity_evictions":self.social_evictions_capacity,
+            "stale_evictions":self.social_evictions_stale,
+            "evicted_lifetime":self.social_evicted_lifetime_total/max(1,self.social_evicted_entries),
+            "current_lifetime":sum(
+                max(0,step-entry.get("created_at",step)) for entry in entries
+            )/max(1,len(entries)),
+            "mean_encounters":encounters/max(1,len(entries)),
+            "top3_concentration":top_three/max(1,encounters),
+            "mean_max_streak":sum(entry.get("max_streak",0) for entry in entries)/max(1,len(entries)),
+            "mean_distance":sum(entry.get("distance_sum",0.0) for entry in entries)/max(1,encounters),
+        }
 
     def offspring(self,rng,mutation_rate,mutation_scale):
         child=AdaptivePolicy.from_dict(self.to_dict())
@@ -376,22 +471,32 @@ class AdaptivePolicy:
             child.w1[legacy:],
             [row[child.base_inputs:] for row in child.w1[:legacy]],
             [row[legacy:] for row in child.w2],
-            child.wz,child.uz,child.wr,child.ur,child.wh,child.uh,child.wm_out
+            child.wz,child.uz,child.wr,child.ur,child.wh,child.uh,child.wm_out,
+            child.entity_w,
         ]
         for matrix in matrices:
             for row in matrix:
                 for i in range(len(row)):
                     if private.random()<mutation_rate: row[i]+=private.gauss(0,mutation_scale)
-        for vector in (child.b1[legacy:],child.bz,child.br,child.bh):
+        for vector in (child.b1[legacy:],child.bz,child.br,child.bh,child.entity_b):
             for i in range(len(vector)):
                 if private.random()<mutation_rate: vector[i]+=private.gauss(0,mutation_scale)
-        child.reset_runtime_memory(); child.reset_social_memory(); return child
+        child.reset_runtime_memory(); child.reset_social_memory()
+        child.social_entries_created=0; child.social_total_encounters=0
+        child.social_known_encounters=0; child.social_evictions_capacity=0
+        child.social_evictions_stale=0; child.social_evicted_lifetime_total=0
+        child.social_evicted_entries=0
+        return child
 
     def to_dict(self):
         return {name:getattr(self,name) for name in (
             "inputs","hidden","outputs","w1","b1","w2","b2","memory_size","wz","uz","bz",
-            "wr","ur","br","wh","uh","bh","wm_out","base_inputs","social_memory",
-            "max_social_entries","social_stale_ticks","residual_scale","gamma","unroll","baseline",
+            "wr","ur","br","wh","uh","bh","wm_out","entity_w","entity_b",
+            "base_inputs","social_memory","max_social_entries","social_stale_ticks",
+            "social_entries_created","social_total_encounters","social_known_encounters",
+            "social_evictions_capacity","social_evictions_stale",
+            "social_evicted_lifetime_total","social_evicted_entries",
+            "residual_scale","gamma","unroll","baseline",
             "head_baselines","updates","tbptt_updates","reward_total","memory","previous_actions",
             "previous_outcomes","trajectory","last_observation","last_actions","last_probabilities",
             "last_gradient_scale")}
