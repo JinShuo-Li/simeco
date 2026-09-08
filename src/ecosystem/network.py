@@ -143,7 +143,10 @@ class AdaptivePolicy:
             identity=int(slot["id"])
             entry=self.social_memory.get(identity)
             if entry is None:
-                entry={"embedding":[0.0]*SOCIAL_EMBEDDING_SIZE,"encounters":0,"last_seen":step}
+                entry={
+                    "embedding":[0.0]*SOCIAL_EMBEDDING_SIZE,
+                    "encounters":0, "last_seen":step, "outcome_trace":0.0,
+                }
                 if update_entries:
                     self.social_memory[identity]=entry
             if update_entries:
@@ -230,6 +233,12 @@ class AdaptivePolicy:
         else:
             transition=self._pending
             transition["outcomes"]=outcomes; transition["reward"]=reward
+            for identity in set(transition.get("social_keys", [])):
+                if identity is None or identity not in self.social_memory:
+                    continue
+                entry=self.social_memory[identity]
+                signal=max(-1.0,min(1.0,reward))
+                entry["outcome_trace"]=.95*entry.get("outcome_trace",0.0)+.05*signal
             self.trajectory.append(transition); self.updates += 1
             if len(self.trajectory)>=self.unroll or terminal:
                 self._learn_trajectory(learning_rate)

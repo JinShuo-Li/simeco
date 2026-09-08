@@ -10,6 +10,7 @@ from .actions import Effort, Interaction, Locomotion, Reproduction
 from .network import AdaptivePolicy
 from .perception import OBSERVATION_SIZE, channel_index
 from .simulation import Simulation
+from .social import SOCIAL_PHYSICAL_SIZE
 
 
 def summary(simulation: Simulation) -> dict:
@@ -88,6 +89,49 @@ def summary(simulation: Simulation) -> dict:
     satiated = probe(energy=0.9)
     hungry = probe(energy=0.2)
     blank = probe(energy=0.5)
+
+    def social_counterfactuals():
+        if not simulation.social_memory:
+            return {
+                "social_good_bad_action_effect": 0.0,
+                "social_familiar_unseen_action_effect": 0.0,
+                "social_embedding_distance": 0.0,
+            }
+        good_bad=[]; familiar=[]; distances=[]
+        physical=[0.0]*SOCIAL_PHYSICAL_SIZE
+        physical[0]=physical[2]=0.25; physical[7]=1.0; physical[9]=0.5
+        for animal in sorted(simulation.organisms.values(),key=lambda item:item.id)[:32]:
+            entries=animal.adaptive_policy.social_memory
+            if not entries:
+                continue
+            ranked=sorted(entries.items(),key=lambda item:item[1].get("outcome_trace",0.0))
+            pairs=[(ranked[-1][0],ranked[0][0])] if len(ranked)>=2 else []
+            known=ranked[-1][0]
+            def action_probabilities(identity):
+                policy=AdaptivePolicy.from_dict(animal.adaptive_policy.to_dict())
+                policy.reset_runtime_memory()
+                learned=policy.preferences(
+                    blank,use_memory=True,
+                    social_slots=[{"id":identity,"features":physical}],
+                    social_enabled=True,step=simulation.step_count,
+                )
+                return animal.arbiter.probabilities(
+                    animal.instinct.preferences(blank),learned,True
+                )
+            known_probabilities=action_probabilities(known)
+            unseen_probabilities=action_probabilities(-1)
+            familiar.append(max(abs(a-b) for a,b in zip(known_probabilities,unseen_probabilities)))
+            for good,bad in pairs:
+                good_probabilities=action_probabilities(good)
+                bad_probabilities=action_probabilities(bad)
+                good_bad.append(max(abs(a-b) for a,b in zip(good_probabilities,bad_probabilities)))
+                first=entries[good]["embedding"]; second=entries[bad]["embedding"]
+                distances.append(sum((a-b)**2 for a,b in zip(first,second))**.5)
+        return {
+            "social_good_bad_action_effect": round(sum(good_bad)/max(1,len(good_bad)),5),
+            "social_familiar_unseen_action_effect": round(sum(familiar)/max(1,len(familiar)),5),
+            "social_embedding_distance": round(sum(distances)/max(1,len(distances)),5),
+        }
 
     food_memory_delta, food_memory_effect = temporal_delta(
         herbivores,
@@ -303,6 +347,7 @@ def summary(simulation: Simulation) -> dict:
         ),
     }
     result.update(temporal_probe_effects)
+    result.update(social_counterfactuals())
     return result
 
 

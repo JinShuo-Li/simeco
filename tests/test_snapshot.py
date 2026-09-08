@@ -53,6 +53,13 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(len(animal["adaptive_policy"]["wh"]), 12)
         self.assertIn("trajectory", animal["adaptive_policy"])
         self.assertIn("social_memory", animal["adaptive_policy"])
+        social_entries = [
+            entry
+            for item in payload["organisms"]
+            for entry in item["adaptive_policy"]["social_memory"].values()
+        ]
+        self.assertTrue(social_entries)
+        self.assertTrue(all("outcome_trace" in entry for entry in social_entries))
         self.assertEqual(len(animal["adaptive_policy"]["previous_outcomes"]), 4)
         self.assertTrue(any(animal["adaptive_policy"]["memory"]))
         self.assertIsNotNone(animal["adaptive_policy"]["previous_actions"])

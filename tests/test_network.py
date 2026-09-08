@@ -107,6 +107,20 @@ class AdaptivePolicyTests(unittest.TestCase):
         child = policy.offspring(random.Random(21), 0.0, 0.0)
         self.assertEqual(child.social_memory, {})
 
+    def test_social_memory_evicts_by_capacity_and_staleness(self):
+        policy = AdaptivePolicy.random(33, 16, TOTAL_ACTION_OUTPUTS, random.Random(22))
+        policy.max_social_entries = 2
+        policy.social_stale_ticks = 2
+        physical = [0.0] * SOCIAL_PHYSICAL_SIZE
+        for step, identity in enumerate((1, 2, 3), start=1):
+            policy.advance(
+                [0.0] * 33, social_slots=[{"id": identity, "features": physical}],
+                social_enabled=True, step=step,
+            )
+        self.assertEqual(set(policy.social_memory), {2, 3})
+        policy.advance([0.0] * 33, social_slots=[], social_enabled=True, step=6)
+        self.assertEqual(policy.social_memory, {})
+
 
 if __name__ == "__main__":
     unittest.main()
