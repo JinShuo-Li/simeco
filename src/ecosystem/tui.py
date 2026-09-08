@@ -106,7 +106,7 @@ class TerminalUI:
         height, width = screen.getmaxyx()
         sim = self.simulation
         mode = sim.controller_mode.replace("_", " ").upper()
-        header = f" LIVING ECOSYSTEM V4  step {sim.step_count:,}  {'PAUSED' if self.paused else f'{self.speed}x'}  {mode} "
+        header = f" LIVING ECOSYSTEM V4.1  step {sim.step_count:,}  {'PAUSED' if self.paused else f'{self.speed}x'}  {mode} "
         self._put(screen, 0, 0, header, curses.A_REVERSE)
         map_height = min(sim.config.height, max(3, height - 5))
         side_width = 30 if width >= 76 else 0
