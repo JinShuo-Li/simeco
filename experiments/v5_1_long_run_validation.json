@@ -1,0 +1,185 @@
+{
+  "protocol": {
+    "steps": 10000,
+    "seeds": [3, 4, 5, 6, 7],
+    "selection": "all planned consecutive seeds",
+    "paired_modes": ["temporal_learning", "temporal_social_memory"],
+    "ecological_ablations": [
+      "seed_3_identity_shuffled",
+      "seed_3_social_embeddings_disabled"
+    ],
+    "history_checkpoints": [2000, 4000, 6000, 8000, 10000]
+  },
+  "architecture": {
+    "ecological_input": 33,
+    "visible_entities": 8,
+    "entity_input": 18,
+    "entity_encoder": "shared 18 -> 8 tanh",
+    "pooling": "elementwise mean concatenated with elementwise max",
+    "pooled_social_input": 16,
+    "adaptive_encoder": "49 -> 16 tanh",
+    "recurrent_memory": 12,
+    "adaptive_action_logits": 12,
+    "engineered_embedding_valence_update": false
+  },
+  "capacity_pilot_seed_3_2000_steps": {
+    "capacity_64": {
+      "occupancy": 0.8897,
+      "capacity_evictions_mean": 88.974,
+      "stale_evictions_mean": 0.0,
+      "eviction_rate": 0.3969,
+      "known_encounter_fraction": 0.9171,
+      "current_entry_lifetime": 94.49,
+      "evicted_entry_lifetime": 119.22,
+      "top3_encounter_concentration": 0.1982,
+      "mean_dyad_max_streak": 7.99
+    },
+    "capacity_96": {
+      "occupancy": 0.8237,
+      "capacity_evictions_mean": 50.066,
+      "stale_evictions_mean": 0.0,
+      "eviction_rate": 0.2062,
+      "known_encounter_fraction": 0.9214,
+      "current_entry_lifetime": 140.69,
+      "evicted_entry_lifetime": 165.74,
+      "top3_encounter_concentration": 0.16,
+      "mean_dyad_max_streak": 8.17
+    },
+    "selected_capacity": 96,
+    "selected_stale_timeout": 600
+  },
+  "controlled_identity_benchmark": {
+    "seed": 53,
+    "episodes": 5000,
+    "physical_vectors_identical": true,
+    "before_accuracy": 0.5,
+    "learned_accuracy": 1.0,
+    "learned_forward_probability": {
+      "rewarded_forward_identity": 0.88078,
+      "rewarded_turn_identity": 0.11922
+    },
+    "identity_shuffled_accuracy": 0.0,
+    "social_memory_reset_accuracy": 0.5,
+    "social_embeddings_disabled_accuracy": 0.5,
+    "embedding_distance": 2.43112
+  },
+  "permutation_validation": {
+    "test": "same three entities in forward and reverse nearest-neighbor order",
+    "maximum_policy_output_delta": 0.0,
+    "asserted_decimal_places": 12
+  },
+  "final_population_by_seed": {
+    "temporal_learning": [
+      {"seed": 3, "herbivores": 42, "predators": 3, "starvation": 4},
+      {"seed": 4, "herbivores": 85, "predators": 5, "starvation": 3},
+      {"seed": 5, "herbivores": 124, "predators": 2, "starvation": 1},
+      {"seed": 6, "herbivores": 108, "predators": 2, "starvation": 1},
+      {"seed": 7, "herbivores": 79, "predators": 4, "starvation": 2}
+    ],
+    "temporal_social_memory": [
+      {"seed": 3, "herbivores": 69, "predators": 3, "starvation": 3},
+      {"seed": 4, "herbivores": 104, "predators": 1, "starvation": 4},
+      {"seed": 5, "herbivores": 50, "predators": 5, "starvation": 4},
+      {"seed": 6, "herbivores": 63, "predators": 5, "starvation": 3},
+      {"seed": 7, "herbivores": 102, "predators": 3, "starvation": 2}
+    ]
+  },
+  "final_mean": {
+    "temporal_learning": {
+      "herbivores": 87.6,
+      "predators": 3.2,
+      "starvation": 2.2,
+      "food_per_herbivore_action": 0.84108,
+      "food_energy_efficiency": 10.87786,
+      "hunt_success": 0.18952,
+      "hunts_per_1000_predator_actions": 1.54806,
+      "hunt_energy_efficiency": 1.6282,
+      "herbivore_sprint_fraction": 0.14628,
+      "predator_sprint_fraction": 0.05266,
+      "unnecessary_sprint_fraction": 0.0864,
+      "herbivore_reward_per_step": 68.29432,
+      "predator_reward_per_step": -0.39632,
+      "repeated_association_fraction": 0.79478,
+      "following_fraction": 0.23286,
+      "predator_colocation_persistence": 0.99812,
+      "max_generation": 27.8
+    },
+    "temporal_social_memory": {
+      "herbivores": 77.6,
+      "predators": 3.4,
+      "starvation": 3.2,
+      "food_per_herbivore_action": 0.9009,
+      "food_energy_efficiency": 11.63424,
+      "hunt_success": 0.21231,
+      "hunts_per_1000_predator_actions": 1.62628,
+      "hunt_energy_efficiency": 1.71158,
+      "herbivore_sprint_fraction": 0.14722,
+      "predator_sprint_fraction": 0.05986,
+      "unnecessary_sprint_fraction": 0.08544,
+      "herbivore_reward_per_step": 69.27774,
+      "predator_reward_per_step": -0.40968,
+      "repeated_association_fraction": 0.79594,
+      "following_fraction": 0.23406,
+      "predator_colocation_persistence": 0.99504,
+      "max_generation": 28.0
+    }
+  },
+  "social_table_final_mean": {
+    "entries": 58.8092,
+    "occupancy": 0.61258,
+    "known_individual_encounter_fraction": 0.93684,
+    "eviction_rate": 0.056,
+    "capacity_evictions": 36.2696,
+    "stale_evictions": 1.6378,
+    "current_entry_lifetime": 206.202,
+    "evicted_entry_lifetime": 79.51,
+    "encounters_per_entry": 18.706,
+    "top3_encounter_concentration": 0.21162,
+    "mean_dyad_max_streak": 9.51,
+    "mean_normalized_distance": 0.7273
+  },
+  "social_history": [
+    {"step": 2000, "herbivores": 148.8, "predators": 4.6, "occupancy": 0.82211, "known_fraction": 0.91376, "eviction_rate": 0.20558, "top3_concentration": 0.15628, "dyad_streak": 8.30744, "following": 0.23022},
+    {"step": 4000, "herbivores": 148.0, "predators": 5.6, "occupancy": 0.84022, "known_fraction": 0.9295, "eviction_rate": 0.19726, "top3_concentration": 0.14652, "dyad_streak": 8.56149, "following": 0.23268},
+    {"step": 6000, "herbivores": 108.2, "predators": 6.8, "occupancy": 0.81252, "known_fraction": 0.92773, "eviction_rate": 0.14379, "top3_concentration": 0.16269, "dyad_streak": 8.75034, "following": 0.23361},
+    {"step": 8000, "herbivores": 99.6, "predators": 7.0, "occupancy": 0.71635, "known_fraction": 0.92363, "eviction_rate": 0.0957, "top3_concentration": 0.1872, "dyad_streak": 8.72876, "following": 0.23392},
+    {"step": 10000, "herbivores": 77.6, "predators": 3.4, "occupancy": 0.6126, "known_fraction": 0.93682, "eviction_rate": 0.05599, "top3_concentration": 0.21162, "dyad_streak": 9.51155, "following": 0.23405}
+  ],
+  "natural_identity_effects": {
+    "good_history_vs_bad_history_max_action_probability_delta": 0.0,
+    "familiar_vs_unseen_max_action_probability_delta": 0.0,
+    "mean_good_bad_embedding_distance": 0.00035,
+    "reported_precision": 5
+  },
+  "seed_3_causal_ablations": {
+    "normal_social": {
+      "herbivores": 69,
+      "predators": 3,
+      "following_fraction": 0.2326,
+      "repeated_association_fraction": 0.7931,
+      "hunt_success": 0.19186
+    },
+    "embeddings_disabled": {
+      "herbivores": 69,
+      "predators": 3,
+      "following_fraction": 0.2326,
+      "repeated_association_fraction": 0.7931,
+      "hunt_success": 0.19186,
+      "trajectory_identical_to_normal": true
+    },
+    "identity_shuffled": {
+      "herbivores": 70,
+      "predators": 5,
+      "following_fraction": 0.2315,
+      "repeated_association_fraction": 0.7931,
+      "hunt_success": 0.19849
+    }
+  },
+  "conclusion": {
+    "ecosystem_viable_all_runs": true,
+    "controlled_identity_learning": true,
+    "natural_stable_individual_specific_behavior": false,
+    "cooperation_supported": false,
+    "interpretation": "The pooled physical entity representation coincided with some mean efficiency changes, but paired effects varied by seed. Identity embeddings remained tiny, natural counterfactual action effects were below 0.000005, and disabling embeddings reproduced the normal seed-3 trajectory exactly. Repeated proximity and predator co-location therefore do not establish learned individual preference, following, herding, or pack cooperation."
+  }
+}

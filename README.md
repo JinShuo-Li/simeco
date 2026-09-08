@@ -273,28 +273,58 @@ percentage point under the conservative unchanged arbiter.
 The social benchmark repeatedly pairs one internal identity with a rewarded
 forward choice and another with a rewarded turn while every visible physical
 value remains identical. Seed 53 moved from 50% to 100% accuracy after 5,000
-episodes; forward probability became 88.1% versus 11.9%. Swapping the identity
-lookup produced 0% accuracy. Resetting the social table or disabling it produced
-50%. This causally isolates learned identity memory.
+episodes; forward probability became 88.1% versus 11.9%. Swapping identity
+lookup produced 0% accuracy. Resetting the table or disabling retrieved
+embeddings produced 50%. The learned embedding distance was `2.431`. This
+causally isolates identity learning without a hand-written valence dimension.
+A three-entity test also moves the same known animal between nearest-neighbor
+ranks and reverses the entire input order; every output agrees to 12 decimal
+places.
 
-The four-mode ecological comparison ran every planned seed 3–5 for 2,000 steps.
-Mean final populations were `157.7/4.3` instinct, `155.3/4.0` feedforward,
-`156.0/4.3` temporal, and `158.3/4.3` social. No social or temporal run
-starved. Relative to temporal learning, social mode raised hunt success from
-21.7% to 22.3%, lowered herbivore sprinting 1.7%, and improved predator reward
-4.7%; food and hunt energy efficiencies fell 2.1% and 10.5%.
+The capacity decision used measurement rather than a larger arbitrary table. In
+a 2,000-step seed-3 pilot, capacity 64 averaged 89 capacity evictions per living
+animal and a 39.7% eviction rate. Capacity 96 reduced these to 50 and 20.6%,
+raised known-individual encounters from 91.7% to 92.1%, and extended current
+entry lifetime from 94 to 141 ticks. Neither configuration had stale eviction,
+so V5.1 uses capacity 96 and retains the 600-tick timeout.
 
-About 79.4% of social-mode encounters repeated from the preceding tick, 23.0% of
-opportunities with a conspecific ahead resulted in forward movement, and predator
-co-location was highly persistent in every mode. Social and temporal following
-differed by only 0.14 percentage points, so these runs do not support claims of
-learned herding, partner preference, or pack cooperation. Natural good/bad
-identity histories separated embeddings by `0.0822`, but changed action
-probabilities by only `0.00008`; strong identity-driven behavior appeared in
-the controlled task, not robustly in the ecology.
+The long comparison ran every consecutive seed 3–7 for 10,000 steps in temporal
+and social modes. Both trophic levels survived every run. Final populations were
+`42/3`, `85/5`, `124/2`, `108/2`, and `79/4` in temporal mode and
+`69/3`, `104/1`, `50/5`, `63/5`, and `102/3` in social mode. Both
+modes reached mean generation 28. Mean populations declined from `154.6/4.2`
+and `148.8/4.6` at step 2,000 to `87.6/3.2` and `77.6/3.4` at step
+10,000, with all planned seeds retained.
 
-The complete protocol and aggregate results are in
-`experiments/v5_social_validation.json`. Every consecutive seed is retained.
+Compared with temporal mode, social mode's mean food gained per action rose
+7.1%, food energy efficiency rose 7.0%, hunt success rose 12.0%, and hunt
+energy efficiency rose 5.1%. These differences were inconsistent across paired
+seeds and include the new pooled physical representation, not just identity
+memory. Herbivore reward was higher in all five pairs, by `0.02` to `2.76` per
+step; predator reward, sprinting, and starvation were mixed or slightly worse.
+
+At step 10,000, private tables averaged 58.8 of 96 entries, 93.7% of encounters
+involved an already-known individual, and the cumulative eviction rate was 5.6%.
+The top three recurring identities accounted for 21.2% of encounters, entries
+currently present averaged 206 ticks old, and mean maximum dyad streak was 9.5
+ticks. Following changed from 23.29% in temporal mode to 23.41% in social mode;
+repeated association changed from 79.48% to 79.59%; predator co-location
+persistence fell from 99.81% to 99.50%.
+
+Natural good-history/bad-history and familiar/unseen counterfactual action
+effects were below `0.000005`, and their mean embedding separation was only
+`0.00035`. Disabling retrieved embeddings reproduced the normal seed-3 social
+trajectory exactly for 10,000 steps. Shuffling lookup identities also failed to
+reduce following or repeated association. These results do not support stable
+individual avoidance, following, partner preference, herding, or pack behavior.
+The controlled task proves that the representation can learn identity, while the
+natural ecology did not supply a strong enough individual-specific learning
+signal for that capability to affect behavior.
+
+The complete protocol, checkpoint trajectories, capacity evidence, per-seed
+results, and ablations are in
+`experiments/v5_1_long_run_validation.json`. The earlier four-mode 2,000-step
+baseline remains in `experiments/v5_social_validation.json`.
 
 ## Tests
 
@@ -306,9 +336,9 @@ python -m unittest discover -s tests -v
 Tests cover rotated perception, distant egocentric sectors, physiology, all action
 heads, instinct responses, independent recurrent parameters and state, temporal
 context dependence under identical current input, fresh offspring memory,
-head-specific learning, feedforward mode, ecological events, deterministic V5
+head-specific learning, feedforward mode, ecological events, deterministic V5.1
 snapshot continuation, social-table eviction, identity-specific action,
-social-memory ablations, and TUI rendering.
+social-memory ablations, shared-encoder order invariance, and TUI rendering.
 
 Headless TUI smoke test:
 
