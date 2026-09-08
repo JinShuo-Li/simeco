@@ -27,6 +27,7 @@ class Organism:
     offspring_count: int = 0
     reproduction_progress: float = 0.0
     action_counts: list[int] = field(default_factory=lambda: [0, 0, 0, 0])
+    visible_ids_last_tick: list[int] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -47,6 +48,7 @@ class Organism:
             "offspring_count": self.offspring_count,
             "reproduction_progress": self.reproduction_progress,
             "action_counts": self.action_counts,
+            "visible_ids_last_tick": self.visible_ids_last_tick,
         }
 
     @classmethod
@@ -62,6 +64,7 @@ class Organism:
         )
         values["arbiter"] = ActionArbiter.from_dict(values.get("arbiter", {}))
         values.setdefault("action_counts", [0, 0, 0, 0])
+        values.setdefault("visible_ids_last_tick", [])
         values.setdefault("reproduction_progress", 0.0)
         values.setdefault("heading", 0)
         return cls(**values)
@@ -102,6 +105,13 @@ class Metrics:
     temporal_action_pairs: int = 0
     locomotion_repeats: int = 0
     effort_repeats: int = 0
+    social_encounters: int = 0
+    repeated_social_encounters: int = 0
+    same_species_encounters: int = 0
+    follow_opportunities: int = 0
+    follow_actions: int = 0
+    predator_colocations: int = 0
+    repeated_predator_colocations: int = 0
     history: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -134,6 +144,13 @@ class Metrics:
             "temporal_action_pairs": self.temporal_action_pairs,
             "locomotion_repeats": self.locomotion_repeats,
             "effort_repeats": self.effort_repeats,
+            "social_encounters": self.social_encounters,
+            "repeated_social_encounters": self.repeated_social_encounters,
+            "same_species_encounters": self.same_species_encounters,
+            "follow_opportunities": self.follow_opportunities,
+            "follow_actions": self.follow_actions,
+            "predator_colocations": self.predator_colocations,
+            "repeated_predator_colocations": self.repeated_predator_colocations,
             "history": self.history,
         }
 
@@ -157,4 +174,11 @@ class Metrics:
         values.setdefault("temporal_action_pairs", 0)
         values.setdefault("locomotion_repeats", 0)
         values.setdefault("effort_repeats", 0)
+        values.setdefault("social_encounters", 0)
+        values.setdefault("repeated_social_encounters", 0)
+        values.setdefault("same_species_encounters", 0)
+        values.setdefault("follow_opportunities", 0)
+        values.setdefault("follow_actions", 0)
+        values.setdefault("predator_colocations", 0)
+        values.setdefault("repeated_predator_colocations", 0)
         return cls(**values)

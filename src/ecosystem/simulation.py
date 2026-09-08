@@ -150,12 +150,12 @@ class Simulation:
             observation = self.observe(animal, herbivores, predators)
             instinct_preferences = animal.instinct.preferences(observation)
             previous_action = animal.arbiter.last_actions
+            social_slots = visible_individuals(animal, order, self.config, cfg)
             adaptive_preferences = (
                 animal.adaptive_policy.advance(
                     observation,
                     use_memory=self.memory,
-                    social_slots=visible_individuals(animal, order, self.config, cfg)
-                    if self.social_memory else None,
+                    social_slots=social_slots if self.social_memory else None,
                     social_enabled=self.social_memory,
                     step=self.step_count,
                 )
@@ -169,6 +169,30 @@ class Simulation:
                 rng=self.rng,
             )
             decisions[animal.id] = action
+            visible_ids = [slot["id"] for slot in social_slots]
+            previous_visible = set(animal.visible_ids_last_tick)
+            self.metrics.social_encounters += len(visible_ids)
+            self.metrics.repeated_social_encounters += sum(
+                identity in previous_visible for identity in visible_ids
+            )
+            same_species = [
+                slot for slot in social_slots
+                if self.organisms[slot["id"]].species == animal.species
+            ]
+            self.metrics.same_species_encounters += len(same_species)
+            if any(slot["features"][0] > 0.0 for slot in same_species):
+                self.metrics.follow_opportunities += 1
+                if action.locomotion == Locomotion.FORWARD:
+                    self.metrics.follow_actions += 1
+            if animal.species == "predator":
+                colocated = [
+                    slot["id"] for slot in same_species if slot["features"][2] == 0.0
+                ]
+                self.metrics.predator_colocations += len(colocated)
+                self.metrics.repeated_predator_colocations += sum(
+                    identity in previous_visible for identity in colocated
+                )
+            animal.visible_ids_last_tick = visible_ids
             if previous_action is not None:
                 self.metrics.temporal_action_pairs += 1
                 if previous_action[0] == action.locomotion:

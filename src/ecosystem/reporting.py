@@ -235,6 +235,33 @@ def summary(simulation: Simulation) -> dict:
             / max(1, simulation.metrics.temporal_action_pairs),
             4,
         ),
+        "repeated_association_fraction": round(
+            simulation.metrics.repeated_social_encounters
+            / max(1, simulation.metrics.social_encounters), 4
+        ),
+        "same_species_encounter_fraction": round(
+            simulation.metrics.same_species_encounters
+            / max(1, simulation.metrics.social_encounters), 4
+        ),
+        "following_fraction": round(
+            simulation.metrics.follow_actions
+            / max(1, simulation.metrics.follow_opportunities), 4
+        ),
+        "predator_colocation_persistence": round(
+            simulation.metrics.repeated_predator_colocations
+            / max(1, simulation.metrics.predator_colocations), 4
+        ),
+        "mean_social_memory_entries": round(
+            sum(len(a.adaptive_policy.social_memory) for a in simulation.organisms.values())
+            / max(1, len(simulation.organisms)), 3
+        ),
+        "mean_partner_concentration": round(
+            sum(
+                max((entry["encounters"] for entry in a.adaptive_policy.social_memory.values()), default=0)
+                / max(1, sum(entry["encounters"] for entry in a.adaptive_policy.social_memory.values()))
+                for a in simulation.organisms.values()
+            ) / max(1, len(simulation.organisms)), 4
+        ),
         "herbivore_births_per_1000_intents": round(
             1000.0 * simulation.metrics.births_herbivore
             / max(1, simulation.metrics.reproduction_intents_herbivore), 4
