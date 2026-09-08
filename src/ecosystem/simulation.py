@@ -331,7 +331,10 @@ class Simulation:
             animal.lifetime_reward += reward
             if self.learning:
                 animal.adaptive_policy.learn(
-                    reward, cfg.learning_rate, head_rewards.get(animal.id)
+                    reward,
+                    cfg.learning_rate,
+                    head_rewards.get(animal.id),
+                    terminal=animal.id in dead,
                 )
                 self.metrics.learning_updates += 1
             if animal.species == "herbivore":

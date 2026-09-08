@@ -76,10 +76,12 @@ def run_inspect(args: argparse.Namespace) -> int:
             + policy["hidden"]
             + policy["outputs"] * policy["hidden"]
             + policy["outputs"]
-            + policy["memory_size"] * len(policy["wr"][0])
-            + policy["memory_size"]
+            + sum(len(row) for name in ("wz", "uz", "wr", "ur", "wh", "uh") for row in policy[name])
+            + 3 * policy["memory_size"]
             + policy["outputs"] * policy["memory_size"]
         ),
+        "tbptt_updates": policy["tbptt_updates"],
+        "buffered_transitions": len(policy["trajectory"]),
     }
     if args.weights:
         data["adaptive_policy"] = policy
