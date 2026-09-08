@@ -1,0 +1,74 @@
+{
+  "protocol": {
+    "seeds": [3, 4, 5],
+    "comparison_steps": 2000,
+    "instinct_gate_steps": 12000,
+    "selection": "all planned consecutive seeds",
+    "modes": [
+      "instinct_only",
+      "feedforward_learning",
+      "temporal_learning",
+      "temporal_social_memory"
+    ]
+  },
+  "controlled_social_benchmark": {
+    "seed": 53,
+    "episodes": 5000,
+    "physical_vectors_identical": true,
+    "before_accuracy": 0.5,
+    "learned_accuracy": 1.0,
+    "learned_forward_probability": {"good_history_identity": 0.88078, "bad_history_identity": 0.11923},
+    "identity_shuffled_accuracy": 0.0,
+    "social_memory_reset_accuracy": 0.5,
+    "social_memory_disabled_accuracy": 0.5,
+    "embedding_distance": 3.26504
+  },
+  "instinct_only_gate": [
+    {"seed": 3, "herbivores": 56, "predators": 3, "max_generation": 33},
+    {"seed": 4, "herbivores": 66, "predators": 7, "max_generation": 33},
+    {"seed": 5, "herbivores": 98, "predators": 4, "max_generation": 33}
+  ],
+  "comparison_mean": {
+    "instinct_only": {
+      "herbivores": 157.66667, "predators": 4.33333, "deaths_starvation": 0.0,
+      "food_energy_efficiency": 9.82723, "hunt_energy_efficiency": 1.6808,
+      "hunt_success": 0.19213, "herbivore_sprint_fraction": 0.1383,
+      "predator_sprint_fraction": 0.04473, "unnecessary_sprint_fraction": 0.0908,
+      "herbivore_reward_per_step": 69.02927, "predator_reward_per_step": -0.29627,
+      "repeated_association_fraction": 0.796, "following_fraction": 0.22567
+    },
+    "feedforward_learning": {
+      "herbivores": 155.33333, "predators": 4.0, "deaths_starvation": 0.33333,
+      "food_energy_efficiency": 9.0171, "hunt_energy_efficiency": 1.5569,
+      "hunt_success": 0.18202, "herbivore_sprint_fraction": 0.13327,
+      "predator_sprint_fraction": 0.04427, "unnecessary_sprint_fraction": 0.08887,
+      "herbivore_reward_per_step": 62.875, "predator_reward_per_step": -0.2851,
+      "repeated_association_fraction": 0.79563, "following_fraction": 0.22733
+    },
+    "temporal_learning": {
+      "herbivores": 156.0, "predators": 4.33333, "deaths_starvation": 0.0,
+      "food_energy_efficiency": 9.56477, "hunt_energy_efficiency": 2.13173,
+      "hunt_success": 0.21717, "herbivore_sprint_fraction": 0.13953,
+      "predator_sprint_fraction": 0.04357, "unnecessary_sprint_fraction": 0.0912,
+      "herbivore_reward_per_step": 66.9508, "predator_reward_per_step": -0.2911,
+      "repeated_association_fraction": 0.7932, "following_fraction": 0.22863
+    },
+    "temporal_social_memory": {
+      "herbivores": 158.33333, "predators": 4.33333, "deaths_starvation": 0.0,
+      "food_energy_efficiency": 9.36127, "hunt_energy_efficiency": 1.90817,
+      "hunt_success": 0.22314, "herbivore_sprint_fraction": 0.13717,
+      "predator_sprint_fraction": 0.04357, "unnecessary_sprint_fraction": 0.09137,
+      "herbivore_reward_per_step": 65.9525, "predator_reward_per_step": -0.27743,
+      "repeated_association_fraction": 0.79413, "following_fraction": 0.23003,
+      "mean_social_entries": 56.291, "mean_partner_concentration": 0.07627,
+      "mean_good_bad_embedding_distance": 0.0822,
+      "familiar_unseen_action_effect": 0.00009,
+      "good_bad_action_effect": 0.00008
+    }
+  },
+  "social_mode_by_seed": [
+    {"seed": 3, "herbivores": 156, "predators": 4, "embedding_distance": 0.08009, "following_fraction": 0.2302},
+    {"seed": 4, "herbivores": 168, "predators": 4, "embedding_distance": 0.07353, "following_fraction": 0.2314},
+    {"seed": 5, "herbivores": 151, "predators": 5, "embedding_distance": 0.09297, "following_fraction": 0.2285}
+  ]
+}

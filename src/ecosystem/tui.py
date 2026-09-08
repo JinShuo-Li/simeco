@@ -180,6 +180,7 @@ class TerminalUI:
             heading = "^>v<"[selected.heading]
             heads = selected.arbiter.last_actions
             memory_activity = sum(abs(value) for value in selected.adaptive_policy.memory)
+            social_entries = len(selected.adaptive_policy.social_memory)
             recent_outcome = sum(selected.adaptive_policy.previous_outcomes)
             action = ""
             if heads is not None:
@@ -193,7 +194,8 @@ class TerminalUI:
                 f"#{selected.id} {selected.species} {heading} E={selected.energy:.1f} age={selected.age} "
                 f"gen={selected.generation} meals={selected.meals} children={selected.offspring_count} "
                 f"reward={selected.lifetime_reward:.1f} updates={selected.adaptive_policy.updates} "
-                f"mem={memory_activity:.2f} last={recent_outcome:+.2f}{action}"
+                f"mem={memory_activity:.2f} social={social_entries} "
+                f"last={recent_outcome:+.2f}{action}"
             )
             self._put(screen, footer_y + 1, 0, detail, curses.color_pair(4) if curses.has_colors() else 0)
         elif self.message:

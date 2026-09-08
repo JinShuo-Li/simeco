@@ -1,20 +1,22 @@
-# simeco V4.1 — Stronger Temporal Learning
+# simeco V5 — Social Perception & Individual Memory
 
 A spatial predator–prey ecosystem built for a headless Linux terminal. Plants
 grow over a toroidal grid, herbivores graze, predators hunt, and both animal
 populations reproduce, age, compete, and die. Population targets, emergency
 births, and extinction-prevention rules are absent.
 
-V4.1 preserves V3's embodiment and V4's private temporal state. Every animal has an
+V5 preserves V4.1's embodiment and temporal learning and adds local recognition
+of individuals. Every animal has an
 orientation and owns three controller objects:
 
 - a species-specific `InstinctController` with fixed survival rules;
-- its own 33–16–12 gated recurrent–12 `AdaptivePolicy` and learning state;
+- its own adaptive 33-value ecological input, eight individual slots, 16-value
+  encoder, 12-value recurrent state, 12 action logits, and private social table;
 - an `ActionArbiter` that mixes instinct and learned residual preferences.
 
 Offspring receive a mutated deep copy of the parent's learned parameters, while
-runtime memory and recent action/outcome state start fresh. There is no shared
-species network.
+runtime temporal and social memories start fresh. There is no shared species
+network, social memory, communication, or group label.
 
 ## Setup
 
@@ -58,12 +60,16 @@ ecosystem run --steps 10000 --seed 3 --instinct-only
 ecosystem run --steps 10000 --seed 3 --learning \
   --metrics runs/seed3.csv --snapshot snapshots/seed3.eco.gz
 ecosystem run --steps 5000 --seed 3 --feedforward-learning
+ecosystem run --steps 5000 --seed 3 --temporal-learning
+ecosystem run --steps 5000 --seed 3 --social-learning
 ecosystem run --load snapshots/seed3.eco.gz --steps 2000 \
   --snapshot snapshots/seed3-resumed.eco.gz
 ecosystem compare --steps 5000 --seed 3 --replicates 3 \
   --output runs/comparison.json
 ecosystem benchmark --episodes 6000 --seed 41 \
   --output runs/delayed-cue.json
+ecosystem social-benchmark --episodes 5000 --seed 53 \
+  --output runs/social-cue.json
 ```
 
 `--no-learning` is an alias for `--instinct-only`. Inspect saved state and
@@ -77,7 +83,8 @@ ecosystem inspect snapshots/seed3.eco.gz --organism 42 --weights
 
 ## Perception
 
-The compact observation has 33 normalized values:
+Instinct continues to receive the unchanged compact observation of 33 normalized
+values:
 
 1. six self-state values: bias, energy fraction, age fraction, hunger, resource
    underfoot, and reproductive readiness;
@@ -88,8 +95,17 @@ The compact observation has 33 normalized values:
 Animal signals cover only the species' configured Manhattan vision radius. Their
 strength falls with distance and accumulates when several animals occupy a sector.
 The plant patch covers adjacent cells. Rotating changes the egocentric encoding;
-the perception encoder never supplies absolute compass direction, global counts,
+the ecological encoder never supplies absolute compass direction, global counts,
 identity, or history.
+
+In social mode the adaptive controller also sees the nearest eight individuals
+inside the observer's existing vision radius. Each 14-value physical slot contains
+egocentric forward/right offset, distance, relative velocity, relative heading
+as sine/cosine, same/different-species bits, body condition rounded to quarters,
+and the four currently visible action choices. A four-value retrieved social
+embedding completes each 18-value slot. Exact energy, reward, hidden state, and
+numeric ID never enter policy input. Slot order is distance-first; IDs are used
+only inside the engine to retrieve private memory.
 
 ## Multi-head actions
 
@@ -110,7 +126,7 @@ met. Herbivores cannot attack, predators cannot eat plants, attacks require
 co-location, and reproduction still requires maturity, energy, and accumulated
 readiness.
 
-## Instinct, recurrent learning, and arbitration
+## Instinct, temporal learning, social memory, and arbitration
 
 Herbivore instinct approaches local plants when hungry, feeds on occupied plant
 cells, turns away and sprints from predators, conserves effort when safe and
@@ -119,7 +135,7 @@ instinct turns toward prey, attacks co-located prey, uses cruise effort during
 pursuit, searches when hungry, conserves effort with no prey, and gates
 reproduction by physiology.
 
-The adaptive policy encodes the 33-value perception through 16 tanh units. A
+The adaptive policy encodes the ecological and optional social input through 16 tanh units. A
 12-value GRU-like state uses separate update, reset, and candidate gates. Its
 input is the encoding plus a 12-value one-hot representation of the previous
 four-head action and the previous four head-specific outcomes. The current
@@ -133,8 +149,22 @@ with `gamma=0.95`; later food, capture, escape, reproduction, injury, or energy
 outcomes can therefore update earlier states and choices. Gradients are clipped,
 the short trajectory objective is normalized by its length, and negative
 advantages retain the 1.8× response. There is no replay buffer, PPO, framework,
-planning, prediction head, identity, or shared memory. Instinct remains entirely
+planning, prediction head, communication, or shared memory. Instinct remains entirely
 memoryless. Feedforward mode keeps immediate, per-head V3-style updates.
+
+Each animal's private table maps an engine-side organism ID to a four-value
+learned embedding, encounter count, last-seen tick, and bounded outcome trace.
+New entries start with a zero embedding. TBPTT updates an embedding through the
+same policy gradient as the neural parameters and associates discounted later
+outcomes with individuals present earlier in the trajectory. This association
+contains no friend, enemy, leader, partner, or cooperation label and adds no
+directional reward.
+
+The table holds at most 64 individuals. Entries unseen for 600 ticks expire; when
+capacity is exceeded, the least recently seen and least encountered entries leave
+first. Offspring inherit mutated neural parameters but receive an empty social
+table, empty trajectory, zero recurrent state, and no recent action/outcome
+context.
 
 The arbiter adds instinct at weight `1.0` and the adaptive residual at `0.12`,
 applies temperature `0.85` and 3.5% exploration, then samples each head
@@ -146,9 +176,9 @@ reward baselines. Outcomes include
 energy spent, food gained, capture success or failure, escape, survival,
 reproduction, and starvation. Directional pursuit and flight are innate and have
 no reward-shaping terms. `--instinct-only` neither evaluates nor updates the
-adaptive layer. `--feedforward-learning` provides the exact V3-style learned
-baseline: it trains the individual adaptive encoder and heads while holding
-recurrent state at zero.
+adaptive layer. `--feedforward-learning` provides the V3-style baseline,
+`--temporal-learning` enables V4.1 recurrence without individual memory, and
+`--social-learning` enables the complete V5 controller.
 
 ## Ecological rules
 
@@ -166,15 +196,15 @@ growth.
 
 ## Snapshots
 
-V4.1 snapshots are versioned gzip-compressed JSON. They contain the step, seed,
+V5 snapshots are versioned gzip-compressed JSON. They contain the step, seed,
 mode, full configuration, plant grid, every organism's physiology, orientation,
 lineage, encoder and all GRU gate parameters, current 12-value memory, the
 partially filled trajectory with its recurrent activations, previous action and
 per-head outcomes, learning baselines, instinct state, arbiter weights and last
 decisions, reproductive readiness, metrics/history, ID allocator, and Python RNG
-state. Saves use an atomic replacement. Runtime state and trajectory start empty
-at birth; learned encoder, gate, and output parameters are inherited with
-mutation. Earlier snapshot versions are rejected.
+state, plus every social entry, embedding, encounter count, last-seen tick,
+outcome trace, and last visible IDs used by metrics. Saves use an atomic
+replacement. Earlier snapshot versions are rejected.
 
 ```bash
 gzip -dc snapshots/seed3.eco.gz | python -m json.tool | less
@@ -183,7 +213,7 @@ gzip -dc snapshots/seed3.eco.gz | python -m json.tool | less
 The deterministic continuation test advances an original and restored simulation
 and compares resources, organisms, controller state, metrics, and actions exactly.
 
-## V4.1 validation and observed behavior
+## V5 validation and observed behavior
 
 The critical instinct-only gate ran seeds 3–5 for 12,000 steps. It reproduced the
 V3 population trajectory at every 2,000-step checkpoint, showing that private
@@ -202,7 +232,7 @@ co-located prey (`0.9764`), and choose low effort while satiated with no prey
 hunt energy efficiency, sprint fractions, unnecessary sprinting, reproductive
 intent efficiency, starvation, survival, and rewards.
 
-The independent delayed-cue benchmark presents LEFT or RIGHT, replaces it with
+The retained delayed-cue benchmark presents LEFT or RIGHT, replaces it with
 identical blank observations for delays 1, 2, 4, and 8, and rewards only the final
 choice. Seed 41 scored 50% at every delay before training and 100% at every delay
 after 6,000 balanced episodes. This is the direct percentage-scale evidence that
@@ -221,15 +251,31 @@ and full effects were `0.00029`, `0.00199`, `0.00124`, and `0.00236`.
 These natural effects persist across the measured horizon but remain below one
 percentage point under the conservative unchanged arbiter.
 
-The full three-mode means are in
-`experiments/v4_1_validation.json`. Across seeds 3–5 at 5,000 steps, recurrent
-learning had zero starvation deaths, versus one total in feedforward and three in
-instinct-only. Final mean populations were `142/5.67` recurrent,
-`142/6.0` feedforward, and `134.33/6.67` instinct-only. Relative to
-feedforward, recurrent herbivore reward rose 2.2%, while food-energy efficiency
-fell 0.4%, hunt efficiency fell 3.7%, predator reward fell 1.0%, and unnecessary
-sprinting rose 7.7%. These mixed results include every planned seed and do not
-claim a general ecological efficiency win.
+The social benchmark repeatedly pairs one internal identity with a rewarded
+forward choice and another with a rewarded turn while every visible physical
+value remains identical. Seed 53 moved from 50% to 100% accuracy after 5,000
+episodes; forward probability became 88.1% versus 11.9%. Swapping the identity
+lookup produced 0% accuracy. Resetting the social table or disabling it produced
+50%. This causally isolates learned identity memory.
+
+The four-mode ecological comparison ran every planned seed 3–5 for 2,000 steps.
+Mean final populations were `157.7/4.3` instinct, `155.3/4.0` feedforward,
+`156.0/4.3` temporal, and `158.3/4.3` social. No social or temporal run
+starved. Relative to temporal learning, social mode raised hunt success from
+21.7% to 22.3%, lowered herbivore sprinting 1.7%, and improved predator reward
+4.7%; food and hunt energy efficiencies fell 2.1% and 10.5%.
+
+About 79.4% of social-mode encounters repeated from the preceding tick, 23.0% of
+opportunities with a conspecific ahead resulted in forward movement, and predator
+co-location was highly persistent in every mode. Social and temporal following
+differed by only 0.14 percentage points, so these runs do not support claims of
+learned herding, partner preference, or pack cooperation. Natural good/bad
+identity histories separated embeddings by `0.0822`, but changed action
+probabilities by only `0.00008`; strong identity-driven behavior appeared in
+the controlled task, not robustly in the ecology.
+
+The complete protocol and aggregate results are in
+`experiments/v5_social_validation.json`. Every consecutive seed is retained.
 
 ## Tests
 
@@ -241,8 +287,9 @@ python -m unittest discover -s tests -v
 Tests cover rotated perception, distant egocentric sectors, physiology, all action
 heads, instinct responses, independent recurrent parameters and state, temporal
 context dependence under identical current input, fresh offspring memory,
-head-specific learning, feedforward mode, ecological events, deterministic V4.1
-snapshot continuation, and TUI rendering.
+head-specific learning, feedforward mode, ecological events, deterministic V5
+snapshot continuation, social-table eviction, identity-specific action,
+social-memory ablations, and TUI rendering.
 
 Headless TUI smoke test:
 
