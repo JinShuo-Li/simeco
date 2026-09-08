@@ -57,6 +57,21 @@ class SimulationTests(unittest.TestCase):
         self.assertGreater(result["prey_flee_turn"], 0.9)
         self.assertGreater(result["predator_attack"], 0.9)
 
+    def test_temporal_probes_require_memory_and_identical_current_input(self):
+        feedforward = summary(Simulation(seed=3, learning=True, memory=False))
+        recurrent = summary(Simulation(seed=3, learning=True, memory=True))
+        self.assertEqual(feedforward["memory_food_search_effect"], 0.0)
+        self.assertEqual(feedforward["memory_pursuit_effect"], 0.0)
+        self.assertGreater(
+            max(
+                recurrent["memory_food_search_effect"],
+                recurrent["memory_escape_turn_effect"],
+                recurrent["memory_pursuit_effect"],
+                recurrent["memory_failed_pursuit_low_effort_effect"],
+            ),
+            0.0001,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

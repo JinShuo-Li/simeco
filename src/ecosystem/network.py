@@ -94,7 +94,7 @@ class AdaptivePolicy:
             memory_size=memory_size,
             wr=_matrix(memory_size, recurrent_inputs, recurrent_rng, 0.16),
             br=[0.0] * memory_size,
-            wm_out=[[0.0] * memory_size for _ in range(outputs)],
+            wm_out=_matrix(outputs, memory_size, recurrent_rng, 0.18),
             memory=[0.0] * memory_size,
         )
 

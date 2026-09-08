@@ -142,6 +142,7 @@ class Simulation:
             cfg = self.config.herbivore if animal.species == "herbivore" else self.config.predator
             observation = self.observe(animal, herbivores, predators)
             instinct_preferences = animal.instinct.preferences(observation)
+            previous_action = animal.arbiter.last_actions
             adaptive_preferences = (
                 animal.adaptive_policy.advance(observation, use_memory=self.memory)
                 if self.learning
@@ -154,6 +155,12 @@ class Simulation:
                 rng=self.rng,
             )
             decisions[animal.id] = action
+            if previous_action is not None:
+                self.metrics.temporal_action_pairs += 1
+                if previous_action[0] == action.locomotion:
+                    self.metrics.locomotion_repeats += 1
+                if previous_action[1] == action.effort:
+                    self.metrics.effort_repeats += 1
             animal.instinct.decisions += 1
             if self.learning:
                 animal.adaptive_policy.record_decision(

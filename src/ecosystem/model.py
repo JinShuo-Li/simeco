@@ -99,6 +99,9 @@ class Metrics:
     energy_gained_herbivore: float = 0.0
     energy_gained_predator: float = 0.0
     unnecessary_sprints: int = 0
+    temporal_action_pairs: int = 0
+    locomotion_repeats: int = 0
+    effort_repeats: int = 0
     history: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -128,6 +131,9 @@ class Metrics:
             "energy_gained_herbivore": self.energy_gained_herbivore,
             "energy_gained_predator": self.energy_gained_predator,
             "unnecessary_sprints": self.unnecessary_sprints,
+            "temporal_action_pairs": self.temporal_action_pairs,
+            "locomotion_repeats": self.locomotion_repeats,
+            "effort_repeats": self.effort_repeats,
             "history": self.history,
         }
 
@@ -148,4 +154,7 @@ class Metrics:
         values.setdefault("energy_gained_herbivore", 0.0)
         values.setdefault("energy_gained_predator", 0.0)
         values.setdefault("unnecessary_sprints", 0)
+        values.setdefault("temporal_action_pairs", 0)
+        values.setdefault("locomotion_repeats", 0)
+        values.setdefault("effort_repeats", 0)
         return cls(**values)

@@ -6,7 +6,8 @@ import csv
 import json
 from pathlib import Path
 
-from .actions import Effort, Interaction, Locomotion
+from .actions import Effort, Interaction, Locomotion, Reproduction
+from .network import AdaptivePolicy
 from .perception import OBSERVATION_SIZE, channel_index
 from .simulation import Simulation
 
@@ -28,6 +29,45 @@ def summary(simulation: Simulation) -> dict:
             simulation.learning,
         )
 
+    def temporal_delta(
+        animals,
+        cue,
+        current,
+        indices,
+        previous_actions,
+        previous_outcomes,
+    ):
+        if not animals or not simulation.memory:
+            return 0.0, 0.0
+        total = 0.0
+        absolute_total = 0.0
+        for animal in animals:
+            saved = animal.adaptive_policy.to_dict()
+            baseline = AdaptivePolicy.from_dict(saved)
+            baseline.reset_runtime_memory()
+            baseline_preferences = baseline.advance(current, use_memory=True)
+            baseline_probabilities = animal.arbiter.probabilities(
+                animal.instinct.preferences(current),
+                baseline_preferences,
+                adaptive_enabled=True,
+            )
+            contextual = AdaptivePolicy.from_dict(saved)
+            contextual.reset_runtime_memory()
+            contextual.advance(cue, use_memory=True)
+            contextual.previous_actions = list(previous_actions)
+            contextual.previous_outcomes = list(previous_outcomes)
+            contextual_preferences = contextual.advance(current, use_memory=True)
+            contextual_probabilities = animal.arbiter.probabilities(
+                animal.instinct.preferences(current),
+                contextual_preferences,
+                adaptive_enabled=True,
+            )
+            difference = sum(contextual_probabilities[index] for index in indices)
+            difference -= sum(baseline_probabilities[index] for index in indices)
+            total += difference
+            absolute_total += abs(difference)
+        return total / len(animals), absolute_total / len(animals)
+
     hungry_food = probe(energy=0.2)
     hungry_food[channel_index("plants", 1, 0)] = 1.0
     satiated_food = probe(energy=0.9)
@@ -42,6 +82,48 @@ def summary(simulation: Simulation) -> dict:
     prey_here[channel_index("herbivores", 0, 0)] = 1.0
     satiated = probe(energy=0.9)
     hungry = probe(energy=0.2)
+    blank = probe(energy=0.5)
+
+    food_memory_delta, food_memory_effect = temporal_delta(
+        herbivores,
+        hungry_food,
+        blank,
+        [Locomotion.FORWARD],
+        [Locomotion.FORWARD, Effort.CRUISE, Interaction.FEED, Reproduction.DEFER],
+        [0.8, 0.5, 2.0, 0.01],
+    )
+    escape_turn_memory_delta, escape_turn_memory_effect = temporal_delta(
+        herbivores,
+        danger_ahead,
+        blank,
+        [Locomotion.TURN_LEFT, Locomotion.TURN_RIGHT],
+        [Locomotion.TURN_LEFT, Effort.SPRINT, Interaction.NONE, Reproduction.DEFER],
+        [-0.1, -0.2, 0.01, 0.01],
+    )
+    escape_sprint_memory_delta, escape_sprint_memory_effect = temporal_delta(
+        herbivores,
+        danger_ahead,
+        blank,
+        [4 + Effort.SPRINT],
+        [Locomotion.TURN_LEFT, Effort.SPRINT, Interaction.NONE, Reproduction.DEFER],
+        [-0.1, -0.2, 0.01, 0.01],
+    )
+    pursuit_memory_delta, pursuit_memory_effect = temporal_delta(
+        predators,
+        prey_ahead,
+        blank,
+        [Locomotion.FORWARD],
+        [Locomotion.FORWARD, Effort.CRUISE, Interaction.ATTACK, Reproduction.DEFER],
+        [0.01, -0.05, -0.25, 0.01],
+    )
+    failed_pursuit_low_effort_delta, failed_pursuit_low_effort_effect = temporal_delta(
+        predators,
+        prey_ahead,
+        blank,
+        [4 + Effort.LOW],
+        [Locomotion.FORWARD, Effort.SPRINT, Interaction.ATTACK, Reproduction.DEFER],
+        [-0.4, -0.8, -0.4, 0.01],
+    )
 
     food_approach = sum(probabilities(a, hungry_food)[Locomotion.FORWARD] for a in herbivores) / max(1, len(herbivores))
     satiated_food_approach = sum(
@@ -115,6 +197,16 @@ def summary(simulation: Simulation) -> dict:
         "unnecessary_sprint_fraction": round(
             simulation.metrics.unnecessary_sprints / max(1, all_efforts), 4
         ),
+        "locomotion_repeat_fraction": round(
+            simulation.metrics.locomotion_repeats
+            / max(1, simulation.metrics.temporal_action_pairs),
+            4,
+        ),
+        "effort_repeat_fraction": round(
+            simulation.metrics.effort_repeats
+            / max(1, simulation.metrics.temporal_action_pairs),
+            4,
+        ),
         "herbivore_births_per_1000_intents": round(
             1000.0 * simulation.metrics.births_herbivore
             / max(1, simulation.metrics.reproduction_intents_herbivore), 4
@@ -132,6 +224,28 @@ def summary(simulation: Simulation) -> dict:
         "predator_attack": round(attack, 4),
         "predator_energy_conservation": round(conserve, 4),
         "predator_hunger_search_delta": round(hungry_search - satiated_search, 4),
+        "memory_food_search_delta": round(food_memory_delta, 5),
+        "memory_food_search_effect": round(food_memory_effect, 5),
+        "memory_escape_turn_delta": round(escape_turn_memory_delta, 5),
+        "memory_escape_turn_effect": round(escape_turn_memory_effect, 5),
+        "memory_escape_sprint_delta": round(escape_sprint_memory_delta, 5),
+        "memory_escape_sprint_effect": round(escape_sprint_memory_effect, 5),
+        "memory_pursuit_delta": round(pursuit_memory_delta, 5),
+        "memory_pursuit_effect": round(pursuit_memory_effect, 5),
+        "memory_failed_pursuit_low_effort_delta": round(
+            failed_pursuit_low_effort_delta, 5
+        ),
+        "memory_failed_pursuit_low_effort_effect": round(
+            failed_pursuit_low_effort_effect, 5
+        ),
+        "mean_memory_activity": round(
+            sum(
+                sum(abs(value) for value in animal.adaptive_policy.memory)
+                for animal in simulation.organisms.values()
+            )
+            / max(1, len(simulation.organisms)),
+            5,
+        ),
     }
 
 

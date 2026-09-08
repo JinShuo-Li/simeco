@@ -62,10 +62,11 @@ class AdaptivePolicyTests(unittest.TestCase):
         observation = [1.0, 0.2, -0.4]
         action = EmbodiedAction(1, 1, 1, 1)
         combined = [0.25] * 4 + [1 / 3] * 3 + [1 / 3] * 3 + [0.5] * 2
+        policy.advance(observation, use_memory=False)
         policy.record_decision(observation, action, combined)
-        before = policy.probabilities(observation)
+        before = policy.probabilities(observation, use_memory=False)
         policy.learn(1.0, 0.1, [0.0, 0.0, 2.0, 0.0])
-        after = policy.probabilities(observation)
+        after = policy.probabilities(observation, use_memory=False)
         self.assertEqual(before[:7], after[:7])
         self.assertNotEqual(before[7:10], after[7:10])
         self.assertEqual(before[10:], after[10:])
