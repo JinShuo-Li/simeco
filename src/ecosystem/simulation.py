@@ -26,10 +26,17 @@ HEADINGS = ((0, -1), (1, 0), (0, 1), (-1, 0))
 
 
 class Simulation:
-    def __init__(self, config: WorldConfig | None = None, seed: int = 1, learning: bool = True):
+    def __init__(
+        self,
+        config: WorldConfig | None = None,
+        seed: int = 1,
+        learning: bool = True,
+        memory: bool | None = None,
+    ):
         self.config = config or WorldConfig()
         self.seed = seed
         self.learning = learning
+        self.memory = learning if memory is None else learning and memory
         self.rng = random.Random(seed)
         self.step_count = 0
         self.next_id = 1
@@ -54,7 +61,11 @@ class Simulation:
     def _spawn_initial(self, species: str, cfg: SpeciesConfig) -> None:
         for _ in range(cfg.initial_count):
             policy = AdaptivePolicy.random(
-                OBSERVATION_SIZE, cfg.hidden_size, TOTAL_ACTION_OUTPUTS, self.rng
+                OBSERVATION_SIZE,
+                cfg.hidden_size,
+                TOTAL_ACTION_OUTPUTS,
+                self.rng,
+                memory_size=cfg.memory_size,
             )
             organism = Organism(
                 id=self.next_id,
@@ -81,6 +92,12 @@ class Simulation:
 
     def species(self, name: str) -> list[Organism]:
         return [organism for organism in self.organisms.values() if organism.species == name]
+
+    @property
+    def controller_mode(self) -> str:
+        if not self.learning:
+            return "instinct_only"
+        return "instinct+learning+memory" if self.memory else "instinct+learning"
 
     def observe(self, organism: Organism, herbivores: list[Organism], predators: list[Organism]) -> list[float]:
         cfg = self.config.herbivore if organism.species == "herbivore" else self.config.predator
@@ -126,7 +143,7 @@ class Simulation:
             observation = self.observe(animal, herbivores, predators)
             instinct_preferences = animal.instinct.preferences(observation)
             adaptive_preferences = (
-                animal.adaptive_policy.preferences(observation)
+                animal.adaptive_policy.advance(observation, use_memory=self.memory)
                 if self.learning
                 else [0.0] * TOTAL_ACTION_OUTPUTS
             )

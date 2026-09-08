@@ -11,6 +11,8 @@ class SimulationTests(unittest.TestCase):
         self.assertGreater(len(animals), 2)
         self.assertEqual(len({id(animal.adaptive_policy) for animal in animals}), len(animals))
         self.assertEqual(len({id(animal.adaptive_policy.w1) for animal in animals}), len(animals))
+        self.assertEqual(len({id(animal.adaptive_policy.wr) for animal in animals}), len(animals))
+        self.assertEqual(len({id(animal.adaptive_policy.memory) for animal in animals}), len(animals))
         self.assertEqual(len({id(animal.instinct) for animal in animals}), len(animals))
         self.assertEqual(len({id(animal.arbiter) for animal in animals}), len(animals))
 
@@ -37,6 +39,15 @@ class SimulationTests(unittest.TestCase):
             self.assertEqual(animal.adaptive_policy.updates, 0)
             self.assertEqual(animal.adaptive_policy.w1, original)
         self.assertEqual(simulation.metrics.learning_updates, 0)
+        self.assertTrue(all(not any(animal.adaptive_policy.memory) for animal in founders))
+
+    def test_feedforward_mode_does_not_advance_memory(self):
+        simulation = Simulation(seed=8, learning=True, memory=False)
+        simulation.run(10)
+        self.assertGreater(simulation.metrics.learning_updates, 0)
+        self.assertTrue(
+            all(not any(animal.adaptive_policy.memory) for animal in simulation.organisms.values())
+        )
 
     def test_behavior_probes_respond_to_physiology_and_local_cues(self):
         result = summary(Simulation(seed=3, learning=False))

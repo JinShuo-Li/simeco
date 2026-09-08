@@ -21,6 +21,7 @@ class SpeciesConfig:
     instinct_strength: float
     competition_cost: float
     hidden_size: int = 10
+    memory_size: int = 6
     learning_rate: float = 0.035
     mutation_rate: float = 0.08
     mutation_scale: float = 0.12
