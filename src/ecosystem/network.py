@@ -7,6 +7,15 @@ import random
 from dataclasses import dataclass, field
 from typing import Any
 from .actions import HEAD_SIZES, TOTAL_ACTION_OUTPUTS, EmbodiedAction
+from .social import (
+    MAX_SOCIAL_ENTRIES,
+    SOCIAL_EMBEDDING_SIZE,
+    SOCIAL_INPUT_SIZE,
+    SOCIAL_PHYSICAL_SIZE,
+    SOCIAL_SLOT_SIZE,
+    SOCIAL_SLOTS,
+    SOCIAL_STALE_TICKS,
+)
 
 OUTCOME_SIZE = len(HEAD_SIZES)
 LEGACY_HIDDEN = 10
@@ -60,6 +69,10 @@ class AdaptivePolicy:
     uh: list[list[float]]
     bh: list[float]
     wm_out: list[list[float]]
+    base_inputs: int = 33
+    social_memory: dict[int, dict[str, Any]] = field(default_factory=dict)
+    max_social_entries: int = MAX_SOCIAL_ENTRIES
+    social_stale_ticks: int = SOCIAL_STALE_TICKS
     residual_scale: float = 1.0
     gamma: float = 0.95
     unroll: int = 8
@@ -86,14 +99,20 @@ class AdaptivePolicy:
     def random(cls, inputs, hidden, outputs, rng, memory_size=12):
         # Keep ecological RNG consumption equal to V3/V4: ten encoder rows.
         legacy = min(LEGACY_HIDDEN, hidden)
-        w1 = _matrix(legacy, inputs, rng, math.sqrt(2.0 / inputs))
-        private = _derived_rng(w1)
-        w1 += _matrix(hidden - legacy, inputs, private, math.sqrt(2.0 / inputs))
+        base_inputs = inputs
+        total_inputs = base_inputs + SOCIAL_INPUT_SIZE
+        legacy_weights = _matrix(legacy, base_inputs, rng, math.sqrt(2.0 / base_inputs))
+        private = _derived_rng(legacy_weights)
+        w1 = [
+            row + [private.gauss(0.0, math.sqrt(1.0 / SOCIAL_INPUT_SIZE)) for _ in range(SOCIAL_INPUT_SIZE)]
+            for row in legacy_weights
+        ]
+        w1 += _matrix(hidden - legacy, total_inputs, private, math.sqrt(2.0 / total_inputs))
         context = hidden + TOTAL_ACTION_OUTPUTS + OUTCOME_SIZE
         gate_scale = math.sqrt(1.0 / context)
         state_scale = math.sqrt(1.0 / max(1, memory_size))
         return cls(
-            inputs, hidden, outputs, w1, [0.0] * hidden,
+            total_inputs, hidden, outputs, w1, [0.0] * hidden,
             _zeros(outputs, hidden), [0.0] * outputs, memory_size,
             _matrix(memory_size, context, private, gate_scale),
             _matrix(memory_size, memory_size, private, state_scale),
@@ -105,8 +124,40 @@ class AdaptivePolicy:
             _matrix(memory_size, memory_size, private, state_scale),
             [0.0] * memory_size,
             _zeros(outputs, memory_size),
+            base_inputs=base_inputs,
             memory=[0.0] * memory_size,
         )
+
+    def _social_observation(self, observation, social_slots, social_enabled, step, update_entries):
+        if not social_enabled:
+            return list(observation) + [0.0] * SOCIAL_INPUT_SIZE, [None] * SOCIAL_SLOTS
+        if update_entries:
+            stale = [
+                identity for identity, entry in self.social_memory.items()
+                if step - entry["last_seen"] > self.social_stale_ticks
+            ]
+            for identity in stale:
+                del self.social_memory[identity]
+        values=[]; keys=[]
+        for slot in (social_slots or [])[:SOCIAL_SLOTS]:
+            identity=int(slot["id"])
+            entry=self.social_memory.get(identity)
+            if entry is None:
+                entry={"embedding":[0.0]*SOCIAL_EMBEDDING_SIZE,"encounters":0,"last_seen":step}
+                if update_entries:
+                    self.social_memory[identity]=entry
+            if update_entries:
+                entry["encounters"]+=1; entry["last_seen"]=step
+            values += list(slot["features"]) + list(entry["embedding"])
+            keys.append(identity)
+        while len(keys)<SOCIAL_SLOTS:
+            values += [0.0]*SOCIAL_SLOT_SIZE; keys.append(None)
+        if update_entries and len(self.social_memory)>self.max_social_entries:
+            for identity,_ in sorted(
+                self.social_memory.items(), key=lambda item:(item[1]["last_seen"],item[1]["encounters"])
+            )[:len(self.social_memory)-self.max_social_entries]:
+                del self.social_memory[identity]
+        return list(observation)+values, keys
 
     def _transition(self, observation, use_memory):
         encoded = [math.tanh(sum(w*x for w, x in zip(row, observation)) + bias)
@@ -133,15 +184,22 @@ class AdaptivePolicy:
                 "context":context,"update_gate":update,"reset_gate":reset,
                 "candidate":candidate,"memory_after":new,"raw":raw,"use_memory":use_memory}
 
-    def advance(self, observation, use_memory=True):
-        transition = self._transition(observation, use_memory)
+    def advance(self, observation, use_memory=True, social_slots=None, social_enabled=False, step=0):
+        adaptive_observation, social_keys = self._social_observation(
+            observation, social_slots, social_enabled, step, True
+        )
+        transition = self._transition(adaptive_observation, use_memory)
+        transition["social_keys"]=social_keys
         self.memory = transition["memory_after"][:]
         self.last_observation = list(observation)
         self._pending = transition
         return [math.tanh(v) * self.residual_scale for v in transition["raw"]]
 
-    def preferences(self, observation, use_memory=True):
-        return [math.tanh(v)*self.residual_scale for v in self._transition(observation,use_memory)["raw"]]
+    def preferences(self, observation, use_memory=True, social_slots=None, social_enabled=False, step=0):
+        adaptive_observation,_ = self._social_observation(
+            observation, social_slots, social_enabled, step, False
+        )
+        return [math.tanh(v)*self.residual_scale for v in self._transition(adaptive_observation,use_memory)["raw"]]
 
     def record_decision(self, observation, action, combined_probabilities, gradient_scale=1.0):
         if self.last_observation != observation or self._pending is None:
@@ -217,6 +275,7 @@ class AdaptivePolicy:
            "wz":_zeros(self.memory_size,self.recurrent_inputs),"uz":_zeros(self.memory_size,self.memory_size),"bz":[0.0]*self.memory_size,
            "wr":_zeros(self.memory_size,self.recurrent_inputs),"ur":_zeros(self.memory_size,self.memory_size),"br":[0.0]*self.memory_size,
            "wh":_zeros(self.memory_size,self.recurrent_inputs),"uh":_zeros(self.memory_size,self.memory_size),"bh":[0.0]*self.memory_size}
+        social_gradients={}
         dh_future=[0.0]*self.memory_size
         for t,discounted in zip(reversed(self.trajectory),reversed(returns)):
             od=self._policy_delta(t,discounted)
@@ -238,6 +297,17 @@ class AdaptivePolicy:
             for i in range(self.hidden):
                 enc_grad[i]+=sum(self.wh[j][i]*dc[j]+self.wz[j][i]*dz[j]+self.wr[j][i]*dr[j] for j in range(self.memory_size))
             de=[enc_grad[i]*(1-t["encoded"][i]**2) for i in range(self.hidden)]
+            input_gradient=[
+                sum(self.w1[hidden][column]*de[hidden] for hidden in range(self.hidden))
+                for column in range(self.inputs)
+            ]
+            for slot,identity in enumerate(t.get("social_keys", [])):
+                if identity is None:
+                    continue
+                start=self.base_inputs+slot*SOCIAL_SLOT_SIZE+SOCIAL_PHYSICAL_SIZE
+                gradient=social_gradients.setdefault(identity,[0.0]*SOCIAL_EMBEDDING_SIZE)
+                for i in range(SOCIAL_EMBEDDING_SIZE):
+                    gradient[i]+=input_gradient[start+i]
             _outer_add(g["w1"],de,t["observation"])
             for i,v in enumerate(de): g["b1"][i]+=v
         scale=rate/count
@@ -246,6 +316,14 @@ class AdaptivePolicy:
                 for i,v in enumerate(grow): row[i]+=scale*max(-3.0,min(3.0,v))
         for name in ("b1","b2","bz","br","bh"):
             for i,v in enumerate(g[name]): getattr(self,name)[i]+=scale*max(-3.0,min(3.0,v))
+        for identity,gradient in social_gradients.items():
+            entry=self.social_memory.get(identity)
+            if entry is None:
+                continue
+            entry["embedding"]=[
+                max(-1.0,min(1.0,value+scale*max(-3.0,min(3.0,change))))
+                for value,change in zip(entry["embedding"],gradient)
+            ]
         self.tbptt_updates+=1; self.trajectory.clear()
 
     def reset_runtime_memory(self):
@@ -254,13 +332,16 @@ class AdaptivePolicy:
         self.last_observation=None; self.last_actions=None; self.last_probabilities=None
         self.last_gradient_scale=1.0; self._pending=None
 
+    def reset_social_memory(self):
+        self.social_memory.clear()
+
     def offspring(self,rng,mutation_rate,mutation_scale):
         child=AdaptivePolicy.from_dict(self.to_dict())
         child.updates=child.tbptt_updates=0; child.reward_total=0.0
         child.baseline*=.5; child.head_baselines=[v*.5 for v in child.head_baselines]
         legacy=min(LEGACY_HIDDEN,child.hidden)
         for row in child.w1[:legacy]:
-            for i in range(len(row)):
+            for i in range(child.base_inputs):
                 if rng.random()<mutation_rate: row[i]+=rng.gauss(0,mutation_scale)
         for row in child.w2:
             for i in range(legacy):
@@ -270,7 +351,12 @@ class AdaptivePolicy:
         for i in range(child.outputs):
             if rng.random()<mutation_rate: child.b2[i]+=rng.gauss(0,mutation_scale)
         private=_derived_rng(rng.getstate())
-        matrices=[child.w1[legacy:],[row[legacy:] for row in child.w2],child.wz,child.uz,child.wr,child.ur,child.wh,child.uh,child.wm_out]
+        matrices=[
+            child.w1[legacy:],
+            [row[child.base_inputs:] for row in child.w1[:legacy]],
+            [row[legacy:] for row in child.w2],
+            child.wz,child.uz,child.wr,child.ur,child.wh,child.uh,child.wm_out
+        ]
         for matrix in matrices:
             for row in matrix:
                 for i in range(len(row)):
@@ -278,12 +364,13 @@ class AdaptivePolicy:
         for vector in (child.b1[legacy:],child.bz,child.br,child.bh):
             for i in range(len(vector)):
                 if private.random()<mutation_rate: vector[i]+=private.gauss(0,mutation_scale)
-        child.reset_runtime_memory(); return child
+        child.reset_runtime_memory(); child.reset_social_memory(); return child
 
     def to_dict(self):
         return {name:getattr(self,name) for name in (
             "inputs","hidden","outputs","w1","b1","w2","b2","memory_size","wz","uz","bz",
-            "wr","ur","br","wh","uh","bh","wm_out","residual_scale","gamma","unroll","baseline",
+            "wr","ur","br","wh","uh","bh","wm_out","base_inputs","social_memory",
+            "max_social_entries","social_stale_ticks","residual_scale","gamma","unroll","baseline",
             "head_baselines","updates","tbptt_updates","reward_total","memory","previous_actions",
             "previous_outcomes","trajectory","last_observation","last_actions","last_probabilities",
             "last_gradient_scale")}
@@ -291,6 +378,7 @@ class AdaptivePolicy:
     @classmethod
     def from_dict(cls,data):
         values=copy.deepcopy(data); values["trajectory"]=[dict(item) for item in values.get("trajectory",[])]
+        values["social_memory"]={int(key):entry for key,entry in values.get("social_memory",{}).items()}
         return cls(**values)
 
 TinyMLP=AdaptivePolicy

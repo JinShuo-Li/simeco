@@ -21,6 +21,7 @@ from .controllers import ActionArbiter, InstinctController
 from .model import Metrics, Organism
 from .network import AdaptivePolicy
 from .perception import OBSERVATION_SIZE, EgocentricPerception, channel_index
+from .social import visible_individuals
 
 HEADINGS = ((0, -1), (1, 0), (0, 1), (-1, 0))
 
@@ -32,11 +33,15 @@ class Simulation:
         seed: int = 1,
         learning: bool = True,
         memory: bool | None = None,
+        social_memory: bool | None = None,
     ):
         self.config = config or WorldConfig()
         self.seed = seed
         self.learning = learning
         self.memory = learning if memory is None else learning and memory
+        self.social_memory = (
+            self.memory if social_memory is None else self.memory and social_memory
+        )
         self.rng = random.Random(seed)
         self.step_count = 0
         self.next_id = 1
@@ -97,7 +102,9 @@ class Simulation:
     def controller_mode(self) -> str:
         if not self.learning:
             return "instinct_only"
-        return "instinct+learning+memory" if self.memory else "instinct+learning"
+        if not self.memory:
+            return "instinct+learning"
+        return "instinct+learning+memory+social" if self.social_memory else "instinct+learning+memory"
 
     def observe(self, organism: Organism, herbivores: list[Organism], predators: list[Organism]) -> list[float]:
         cfg = self.config.herbivore if organism.species == "herbivore" else self.config.predator
@@ -144,7 +151,14 @@ class Simulation:
             instinct_preferences = animal.instinct.preferences(observation)
             previous_action = animal.arbiter.last_actions
             adaptive_preferences = (
-                animal.adaptive_policy.advance(observation, use_memory=self.memory)
+                animal.adaptive_policy.advance(
+                    observation,
+                    use_memory=self.memory,
+                    social_slots=visible_individuals(animal, order, self.config, cfg)
+                    if self.social_memory else None,
+                    social_enabled=self.social_memory,
+                    step=self.step_count,
+                )
                 if self.learning
                 else [0.0] * TOTAL_ACTION_OUTPUTS
             )

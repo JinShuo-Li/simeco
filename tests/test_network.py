@@ -3,6 +3,7 @@ import unittest
 
 from ecosystem.actions import TOTAL_ACTION_OUTPUTS, EmbodiedAction, Locomotion
 from ecosystem.network import AdaptivePolicy
+from ecosystem.social import SOCIAL_PHYSICAL_SIZE
 
 
 class AdaptivePolicyTests(unittest.TestCase):
@@ -75,6 +76,36 @@ class AdaptivePolicyTests(unittest.TestCase):
         self.assertEqual(before[:7], after[:7])
         self.assertNotEqual(before[7:10], after[7:10])
         self.assertEqual(before[10:], after[10:])
+
+    def test_private_identity_embedding_changes_action_for_same_physics(self):
+        policy = AdaptivePolicy.random(33, 16, TOTAL_ACTION_OUTPUTS, random.Random(19))
+        policy.w1 = [[0.0] * policy.inputs for _ in range(policy.hidden)]
+        policy.w2 = [[0.0] * policy.hidden for _ in range(policy.outputs)]
+        embedding_column = policy.base_inputs + SOCIAL_PHYSICAL_SIZE
+        policy.w1[0][embedding_column] = 2.0
+        policy.w2[Locomotion.FORWARD][0] = 2.0
+        policy.social_memory = {
+            101: {"embedding": [1.0, 0.0, 0.0, 0.0], "encounters": 4, "last_seen": 1},
+            202: {"embedding": [-1.0, 0.0, 0.0, 0.0], "encounters": 4, "last_seen": 1},
+        }
+        physical = [0.0] * SOCIAL_PHYSICAL_SIZE
+        first = policy.preferences(
+            [0.0] * 33, use_memory=False,
+            social_slots=[{"id": 101, "features": physical}], social_enabled=True,
+        )
+        second = policy.preferences(
+            [0.0] * 33, use_memory=False,
+            social_slots=[{"id": 202, "features": physical}], social_enabled=True,
+        )
+        self.assertGreater(first[Locomotion.FORWARD], second[Locomotion.FORWARD] + 1.0)
+
+    def test_offspring_does_not_inherit_social_memories(self):
+        policy = AdaptivePolicy.random(33, 16, TOTAL_ACTION_OUTPUTS, random.Random(20))
+        policy.social_memory[7] = {
+            "embedding": [0.2, -0.1, 0.3, 0.0], "encounters": 9, "last_seen": 30
+        }
+        child = policy.offspring(random.Random(21), 0.0, 0.0)
+        self.assertEqual(child.social_memory, {})
 
 
 if __name__ == "__main__":

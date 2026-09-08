@@ -13,7 +13,7 @@ from .model import Metrics, Organism
 from .simulation import Simulation
 
 SNAPSHOT_FORMAT = "living-ecosystem"
-SNAPSHOT_VERSION = 5
+SNAPSHOT_VERSION = 6
 
 
 def save_snapshot(simulation: Simulation, path: str | Path) -> Path:
@@ -28,6 +28,7 @@ def save_snapshot(simulation: Simulation, path: str | Path) -> Path:
         "learning": simulation.learning,
         "controller_mode": simulation.controller_mode,
         "memory": simulation.memory,
+        "social_memory": simulation.social_memory,
         "next_id": simulation.next_id,
         "config": simulation.config.to_dict(),
         "resources": simulation.resources,
@@ -66,6 +67,7 @@ def load_snapshot(path: str | Path) -> Simulation:
     simulation.seed = payload["seed"]
     simulation.learning = payload["learning"]
     simulation.memory = payload["memory"]
+    simulation.social_memory = payload["social_memory"]
     simulation.step_count = payload["step"]
     simulation.next_id = payload["next_id"]
     simulation.resources = payload["resources"]

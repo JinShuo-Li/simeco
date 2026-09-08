@@ -18,13 +18,17 @@ def _simulation(args: argparse.Namespace) -> Simulation:
         simulation = load_snapshot(args.load)
         if requested_mode is not None:
             simulation.learning = requested_mode != "instinct_only"
-            simulation.memory = requested_mode == "instinct+learning+memory"
+            simulation.memory = requested_mode in (
+                "instinct+learning+memory", "instinct+learning+memory+social"
+            )
+            simulation.social_memory = requested_mode == "instinct+learning+memory+social"
         return simulation
-    mode = requested_mode or "instinct+learning+memory"
+    mode = requested_mode or "instinct+learning+memory+social"
     return Simulation(
         seed=args.seed,
         learning=mode != "instinct_only",
-        memory=mode == "instinct+learning+memory",
+        memory=mode in ("instinct+learning+memory", "instinct+learning+memory+social"),
+        social_memory=mode == "instinct+learning+memory+social",
     )
 
 
@@ -42,8 +46,13 @@ def run_batch(args: argparse.Namespace) -> int:
 def run_compare(args: argparse.Namespace) -> int:
     rows = []
     for seed in range(args.seed, args.seed + args.replicates):
-        for learning, memory in ((False, False), (True, False), (True, True)):
-            simulation = Simulation(seed=seed, learning=learning, memory=memory)
+        for learning, memory, social in (
+            (False, False, False), (True, False, False),
+            (True, True, False), (True, True, True),
+        ):
+            simulation = Simulation(
+                seed=seed, learning=learning, memory=memory, social_memory=social
+            )
             simulation.run(args.steps)
             rows.append(summary(simulation))
     if args.output:
@@ -83,6 +92,7 @@ def run_inspect(args: argparse.Namespace) -> int:
         ),
         "tbptt_updates": policy["tbptt_updates"],
         "buffered_transitions": len(policy["trajectory"]),
+        "social_memory_entries": len(policy["social_memory"]),
     }
     if args.weights:
         data["adaptive_policy"] = policy
@@ -123,9 +133,14 @@ def parser() -> argparse.ArgumentParser:
     batch.add_argument("--metrics", metavar="CSV")
     learning = batch.add_mutually_exclusive_group()
     learning.add_argument(
-        "--learning", action="store_const", const="instinct+learning+memory",
+        "--learning", "--social-learning", action="store_const",
+        const="instinct+learning+memory+social",
         dest="controller_mode", default=None,
-        help="use instinct plus recurrent lifetime learning (default)",
+        help="use temporal plus social-memory learning (default)",
+    )
+    learning.add_argument(
+        "--temporal-learning", action="store_const", const="instinct+learning+memory",
+        dest="controller_mode", help="use recurrent learning without individual memory",
     )
     learning.add_argument(
         "--feedforward-learning", action="store_const", const="instinct+learning",
@@ -138,7 +153,7 @@ def parser() -> argparse.ArgumentParser:
     batch.set_defaults(func=run_batch)
 
     compare = subparsers.add_parser(
-        "compare", help="compare instinct-only, feed-forward, and recurrent modes"
+        "compare", help="compare instinct, feed-forward, temporal, and social modes"
     )
     compare.add_argument("--steps", type=int, default=1500)
     compare.add_argument("--seed", type=int, default=3)
@@ -167,9 +182,14 @@ def parser() -> argparse.ArgumentParser:
     tui.add_argument("--save-on-exit", action="store_true")
     learning = tui.add_mutually_exclusive_group()
     learning.add_argument(
-        "--learning", action="store_const", const="instinct+learning+memory",
+        "--learning", "--social-learning", action="store_const",
+        const="instinct+learning+memory+social",
         dest="controller_mode", default=None,
-        help="use instinct plus recurrent lifetime learning (default)",
+        help="use temporal plus social-memory learning (default)",
+    )
+    learning.add_argument(
+        "--temporal-learning", action="store_const", const="instinct+learning+memory",
+        dest="controller_mode", help="use recurrent learning without individual memory",
     )
     learning.add_argument(
         "--feedforward-learning", action="store_const", const="instinct+learning",

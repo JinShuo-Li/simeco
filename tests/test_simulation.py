@@ -59,11 +59,11 @@ class SimulationTests(unittest.TestCase):
 
     def test_temporal_probes_require_memory_and_identical_current_input(self):
         feedforward = summary(Simulation(seed=3, learning=True, memory=False))
-        recurrent = summary(Simulation(seed=3, learning=True, memory=True))
+        recurrent = summary(Simulation(seed=3, learning=True, memory=True, social_memory=False))
         self.assertEqual(feedforward["memory_food_search_effect"], 0.0)
         self.assertEqual(feedforward["memory_pursuit_effect"], 0.0)
         self.assertEqual(recurrent["memory_food_search_effect"], 0.0)
-        trained = Simulation(seed=3, learning=True, memory=True)
+        trained = Simulation(seed=3, learning=True, memory=True, social_memory=False)
         trained.run(20)
         trained_summary = summary(trained)
         self.assertGreater(
