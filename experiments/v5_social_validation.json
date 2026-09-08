@@ -21,7 +21,7 @@
     "identity_shuffled_accuracy": 0.0,
     "social_memory_reset_accuracy": 0.5,
     "social_memory_disabled_accuracy": 0.5,
-    "embedding_distance": 3.26504
+    "embedding_distance": 2.91925
   },
   "instinct_only_gate": [
     {"seed": 3, "herbivores": 56, "predators": 3, "max_generation": 33},
