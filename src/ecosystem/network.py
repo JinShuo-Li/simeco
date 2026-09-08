@@ -30,6 +30,7 @@ class AdaptivePolicy:
     b2: list[float]
     residual_scale: float = 1.0
     baseline: float = 0.0
+    head_baselines: list[float] = field(default_factory=lambda: [0.0] * len(HEAD_SIZES))
     updates: int = 0
     reward_total: float = 0.0
     last_observation: list[float] | None = field(default=None, repr=False)
@@ -45,7 +46,9 @@ class AdaptivePolicy:
             outputs=outputs,
             w1=_matrix(hidden, inputs, rng, math.sqrt(2.0 / inputs)),
             b1=[0.0] * hidden,
-            w2=_matrix(outputs, hidden, rng, math.sqrt(1.0 / hidden)),
+            # A neutral output layer makes learning-enabled founders begin at the
+            # instinct baseline; their private hidden encoders remain distinct.
+            w2=[[0.0] * hidden for _ in range(outputs)],
             b2=[0.0] * outputs,
         )
 
@@ -91,20 +94,30 @@ class AdaptivePolicy:
             offset += size
         return probabilities
 
-    def learn(self, reward: float, learning_rate: float) -> None:
-        """Reinforce the preceding action; negative surprises update more strongly."""
+    def learn(
+        self, reward: float, learning_rate: float, head_rewards: list[float] | None = None
+    ) -> None:
+        """Reinforce each selected head from the outcome it could influence."""
         if self.last_observation is None or self.last_actions is None:
             return
         hidden, raw_preferences = self._forward(self.last_observation)
         probabilities = self.last_probabilities or self.probabilities(self.last_observation)
-        advantage = max(-4.0, min(4.0, reward - self.baseline))
-        rate = learning_rate * (1.8 if advantage < 0.0 else 1.0)
+        outcomes = head_rewards if head_rewards is not None else [reward] * len(HEAD_SIZES)
         output_delta = [0.0] * self.outputs
         offset = 0
-        for size, action in zip(HEAD_SIZES, self.last_actions):
+        for head_index, (size, action) in enumerate(zip(HEAD_SIZES, self.last_actions)):
+            advantage = max(
+                -4.0, min(4.0, outcomes[head_index] - self.head_baselines[head_index])
+            )
+            rate_scale = 1.8 if advantage < 0.0 else 1.0
             for index in range(size):
-                output_delta[offset + index] = -probabilities[offset + index] * advantage
-            output_delta[offset + action] += advantage
+                output_delta[offset + index] = (
+                    -probabilities[offset + index] * advantage * rate_scale
+                )
+            output_delta[offset + action] += advantage * rate_scale
+            self.head_baselines[head_index] = (
+                0.96 * self.head_baselines[head_index] + 0.04 * outcomes[head_index]
+            )
             offset += size
         output_delta = [
             delta
@@ -118,15 +131,19 @@ class AdaptivePolicy:
         for out_index in range(self.outputs):
             delta = max(-2.0, min(2.0, output_delta[out_index]))
             for hidden_index in range(self.hidden):
-                self.w2[out_index][hidden_index] += rate * delta * hidden[hidden_index]
-            self.b2[out_index] += rate * delta
+                self.w2[out_index][hidden_index] += (
+                    learning_rate * delta * hidden[hidden_index]
+                )
+            self.b2[out_index] += learning_rate * delta
 
         for hidden_index in range(self.hidden):
             propagated = sum(old_w2[out][hidden_index] * output_delta[out] for out in range(self.outputs))
             delta = max(-2.0, min(2.0, propagated * (1.0 - hidden[hidden_index] ** 2)))
             for input_index in range(self.inputs):
-                self.w1[hidden_index][input_index] += rate * delta * self.last_observation[input_index]
-            self.b1[hidden_index] += rate * delta
+                self.w1[hidden_index][input_index] += (
+                    learning_rate * delta * self.last_observation[input_index]
+                )
+            self.b1[hidden_index] += learning_rate * delta
 
         self.baseline = 0.96 * self.baseline + 0.04 * reward
         self.reward_total += reward
@@ -141,6 +158,7 @@ class AdaptivePolicy:
         child.updates = 0
         child.reward_total = 0.0
         child.baseline *= 0.5
+        child.head_baselines = [value * 0.5 for value in child.head_baselines]
         for matrix in (child.w1, child.w2):
             for row in matrix:
                 for index in range(len(row)):
@@ -163,6 +181,7 @@ class AdaptivePolicy:
             "b2": self.b2,
             "residual_scale": self.residual_scale,
             "baseline": self.baseline,
+            "head_baselines": self.head_baselines,
             "updates": self.updates,
             "reward_total": self.reward_total,
             "last_observation": self.last_observation,
@@ -179,6 +198,7 @@ class AdaptivePolicy:
         values["w2"] = [row[:] for row in values["w2"]]
         values["b2"] = values["b2"][:]
         values.setdefault("residual_scale", 1.0)
+        values.setdefault("head_baselines", [values.get("baseline", 0.0)] * len(HEAD_SIZES))
         values.setdefault("last_gradient_scale", 1.0)
         if "last_actions" not in values:
             old_action = values.pop("last_action", None)
@@ -189,6 +209,7 @@ class AdaptivePolicy:
             values["last_probabilities"] = values["last_probabilities"][:]
         if values.get("last_actions") is not None:
             values["last_actions"] = values["last_actions"][:]
+        values["head_baselines"] = values["head_baselines"][:]
         return cls(**values)
 
 

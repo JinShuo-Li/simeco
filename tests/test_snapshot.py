@@ -42,6 +42,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertIn("heading", animal)
         self.assertEqual(animal["adaptive_policy"]["inputs"], 33)
         self.assertEqual(animal["adaptive_policy"]["outputs"], 12)
+        self.assertEqual(len(animal["adaptive_policy"]["head_baselines"]), 4)
         self.assertEqual(len(animal["arbiter"]["last_actions"]), 4)
 
 

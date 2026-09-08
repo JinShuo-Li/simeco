@@ -119,6 +119,7 @@ class Simulation:
             occupied[(animal.x, animal.y)] += 1
 
         rewards: dict[int, float] = {}
+        head_rewards: dict[int, list[float]] = {}
         decisions: dict[int, EmbodiedAction] = {}
         for animal in order:
             cfg = self.config.herbivore if animal.species == "herbivore" else self.config.predator
@@ -213,6 +214,7 @@ class Simulation:
             else:
                 self.metrics.energy_spent_predator += cost
             reward = -cost / cfg.move_cost * 0.08
+            per_head = [reward, reward, 0.01, 0.01]
             if animal.species == "herbivore" and action.interaction == Interaction.FEED:
                 available = self.resources[animal.y][animal.x]
                 eaten = min(available, self.config.plant_bite)
@@ -224,10 +226,16 @@ class Simulation:
                 if eaten > 0.25:
                     animal.meals += 1
                     reward += gained / 4.0
+                    per_head[0] += gained / 8.0
+                    per_head[1] += gained / 10.0
+                    per_head[2] += gained / 3.0
             reward += 0.01  # surviving another tick is weak positive feedback
+            per_head[0] += 0.01
+            per_head[1] += 0.01
             rewards[animal.id] = reward
+            head_rewards[animal.id] = per_head
 
-        self._resolve_hunts(predators, decisions, rewards)
+        self._resolve_hunts(predators, decisions, rewards, head_rewards)
         newborns: list[Organism] = []
         dead: list[int] = []
         for animal in order:
@@ -238,6 +246,9 @@ class Simulation:
             reward = rewards.get(animal.id, 0.0)
             if animal.energy <= 0:
                 reward -= 3.0
+                head_rewards[animal.id] = [
+                    value - 3.0 for value in head_rewards.get(animal.id, [0.0] * 4)
+                ]
                 self.metrics.deaths_starvation += 1
                 dead.append(animal.id)
             elif animal.age >= cfg.max_age:
@@ -288,13 +299,16 @@ class Simulation:
                 newborns.append(child)
                 animal.offspring_count += 1
                 reward += 1.3
+                head_rewards[animal.id][3] += 1.3
                 if animal.species == "herbivore":
                     self.metrics.births_herbivore += 1
                 else:
                     self.metrics.births_predator += 1
             animal.lifetime_reward += reward
             if self.learning:
-                animal.adaptive_policy.learn(reward, cfg.learning_rate)
+                animal.adaptive_policy.learn(
+                    reward, cfg.learning_rate, head_rewards.get(animal.id)
+                )
                 self.metrics.learning_updates += 1
             if animal.species == "herbivore":
                 self.metrics.reward_herbivore += reward
@@ -315,6 +329,7 @@ class Simulation:
         predators: list[Organism],
         decisions: dict[int, EmbodiedAction],
         rewards: dict[int, float],
+        head_rewards: dict[int, list[float]],
     ) -> None:
         prey_by_cell: dict[tuple[int, int], list[Organism]] = defaultdict(list)
         for prey in self.species("herbivore"):
@@ -327,12 +342,14 @@ class Simulation:
             candidates = prey_by_cell.get((predator.x, predator.y), [])
             if not candidates:
                 rewards[predator.id] = rewards.get(predator.id, 0.0) - 0.18
+                head_rewards[predator.id][2] -= 0.18
                 continue
             self.metrics.hunt_attempts += 1
             prey = self.rng.choice(candidates)
             if self.rng.random() > self.config.capture_probability:
                 rewards[predator.id] = rewards.get(predator.id, 0.0) - 0.25
                 rewards[prey.id] = rewards.get(prey.id, 0.0) + 0.45
+                head_rewards[predator.id][2] -= 0.25
                 self.metrics.prey_escapes += 1
                 continue
             candidates.remove(prey)
@@ -345,6 +362,9 @@ class Simulation:
             predator.meals += 1
             rewards[predator.id] = rewards.get(predator.id, 0.0) + 3.2 + gain / 10.0
             rewards[prey.id] = rewards.get(prey.id, 0.0) - 4.0
+            head_rewards[predator.id][0] += gain / 15.0
+            head_rewards[predator.id][1] += gain / 20.0
+            head_rewards[predator.id][2] += 3.2 + gain / 10.0
             self.metrics.hunts += 1
             self.metrics.deaths_predation += 1
             self.last_events["hunts"] += 1
