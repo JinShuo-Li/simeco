@@ -97,7 +97,9 @@ def run_inspect(args: argparse.Namespace) -> int:
         "previous_actions": policy["previous_actions"],
         "previous_outcomes": policy["previous_outcomes"],
         "parameter_count": (
-            policy["hidden"] * policy["inputs"]
+            sum(len(row) for row in policy["entity_w"])
+            + len(policy["entity_b"])
+            + policy["hidden"] * policy["inputs"]
             + policy["hidden"]
             + policy["outputs"] * policy["hidden"]
             + policy["outputs"]
@@ -108,6 +110,7 @@ def run_inspect(args: argparse.Namespace) -> int:
         "tbptt_updates": policy["tbptt_updates"],
         "buffered_transitions": len(policy["trajectory"]),
         "social_memory_entries": len(policy["social_memory"]),
+        "entity_encoder_shape": [len(policy["entity_w"][0]), len(policy["entity_w"])],
     }
     if args.weights:
         data["adaptive_policy"] = policy
