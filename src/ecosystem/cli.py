@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from .reporting import print_summary, summary, write_history
+from .benchmark import run_memory_benchmark
 from .simulation import Simulation
 from .snapshot import load_snapshot, save_snapshot
 
@@ -100,6 +101,16 @@ def run_interactive(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_benchmark(args: argparse.Namespace) -> int:
+    result = run_memory_benchmark(args.seed, args.episodes, args.trials)
+    if args.output:
+        destination = Path(args.output)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="ecosystem", description="A learning predator-prey ecosystem")
     subparsers = root.add_subparsers(dest="command")
@@ -134,6 +145,13 @@ def parser() -> argparse.ArgumentParser:
     compare.add_argument("--replicates", type=int, default=3)
     compare.add_argument("--output", metavar="JSON")
     compare.set_defaults(func=run_compare)
+
+    benchmark = subparsers.add_parser("benchmark", help="train the delayed-cue memory task")
+    benchmark.add_argument("--seed", type=int, default=41)
+    benchmark.add_argument("--episodes", type=int, default=6000)
+    benchmark.add_argument("--trials", type=int, default=400)
+    benchmark.add_argument("--output", metavar="JSON")
+    benchmark.set_defaults(func=run_benchmark)
 
     inspect = subparsers.add_parser("inspect", help="inspect a saved ecosystem or organism")
     inspect.add_argument("snapshot")
