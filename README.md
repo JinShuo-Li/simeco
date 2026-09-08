@@ -1,17 +1,19 @@
-# simeco V5 — Social Perception & Individual Memory
+# simeco V5.1 — Better Social Representation & Long-Run Validation
 
 A spatial predator–prey ecosystem built for a headless Linux terminal. Plants
 grow over a toroidal grid, herbivores graze, predators hunt, and both animal
 populations reproduce, age, compete, and die. Population targets, emergency
 births, and extinction-prevention rules are absent.
 
-V5 preserves V4.1's embodiment and temporal learning and adds local recognition
-of individuals. Every animal has an
+V5.1 preserves V4.1's embodiment and temporal learning, adds local recognition
+of individuals, and represents visible animals with a shared entity encoder.
+Every animal has an
 orientation and owns three controller objects:
 
 - a species-specific `InstinctController` with fixed survival rules;
-- its own adaptive 33-value ecological input, eight individual slots, 16-value
-  encoder, 12-value recurrent state, 12 action logits, and private social table;
+- its own adaptive 33-value ecological input, shared 18-to-8 entity encoder,
+  mean/max social pooling, 16-value ecological/social encoder, 12-value
+  recurrent state, 12 action logits, and private social table;
 - an `ActionArbiter` that mixes instinct and learned residual preferences.
 
 Offspring receive a mutated deep copy of the parent's learned parameters, while
@@ -62,6 +64,10 @@ ecosystem run --steps 10000 --seed 3 --learning \
 ecosystem run --steps 5000 --seed 3 --feedforward-learning
 ecosystem run --steps 5000 --seed 3 --temporal-learning
 ecosystem run --steps 5000 --seed 3 --social-learning
+ecosystem run --steps 10000 --seed 3 --social-learning \
+  --social-ablation embeddings-disabled
+ecosystem run --steps 10000 --seed 3 --social-learning \
+  --reset-social-at 5000
 ecosystem run --load snapshots/seed3.eco.gz --steps 2000 \
   --snapshot snapshots/seed3-resumed.eco.gz
 ecosystem compare --steps 5000 --seed 3 --replicates 3 \
@@ -98,14 +104,17 @@ The plant patch covers adjacent cells. Rotating changes the egocentric encoding;
 the ecological encoder never supplies absolute compass direction, global counts,
 identity, or history.
 
-In social mode the adaptive controller also sees the nearest eight individuals
+In social mode the adaptive controller also sees up to eight nearby individuals
 inside the observer's existing vision radius. Each 14-value physical slot contains
 egocentric forward/right offset, distance, relative velocity, relative heading
 as sine/cosine, same/different-species bits, body condition rounded to quarters,
 and the four currently visible action choices. A four-value retrieved social
-embedding completes each 18-value slot. Exact energy, reward, hidden state, and
-numeric ID never enter policy input. Slot order is distance-first; IDs are used
-only inside the engine to retrieve private memory.
+embedding completes each 18-value entity input. The same learned 18-to-8 tanh
+encoder processes every visible individual. Elementwise mean and max pooling
+produce a 16-value aggregate, so policy output is invariant to entity order and
+nearest-neighbor rank. Exact energy, reward, hidden state, and numeric ID never
+enter policy input. IDs are used only inside the engine to retrieve private
+memory.
 
 ## Multi-head actions
 
@@ -135,7 +144,8 @@ instinct turns toward prey, attacks co-located prey, uses cruise effort during
 pursuit, searches when hungry, conserves effort with no prey, and gates
 reproduction by physiology.
 
-The adaptive policy encodes the ecological and optional social input through 16 tanh units. A
+The adaptive policy concatenates the 33 ecological values with the 16 pooled
+social values and encodes the resulting 49 values through 16 tanh units. A
 12-value GRU-like state uses separate update, reset, and candidate gates. Its
 input is the encoding plus a 12-value one-hot representation of the previous
 four-head action and the previous four head-specific outcomes. The current
@@ -153,16 +163,21 @@ planning, prediction head, communication, or shared memory. Instinct remains ent
 memoryless. Feedforward mode keeps immediate, per-head V3-style updates.
 
 Each animal's private table maps an engine-side organism ID to a four-value
-learned embedding, encounter count, last-seen tick, and bounded outcome trace.
-New entries start with a zero embedding. TBPTT updates an embedding through the
-same policy gradient as the neural parameters and associates discounted later
-outcomes with individuals present earlier in the trajectory. This association
-contains no friend, enemy, leader, partner, or cooperation label and adds no
-directional reward.
+learned embedding plus encounter and lifetime telemetry. New entries start with
+a zero embedding. TBPTT updates embeddings only through the same discounted
+adaptive objective as the entity encoder and recurrent policy. The outcome trace
+stored for ecological analysis does not enter the controller and never updates
+an embedding directly. There is no engineered positive/negative social
+dimension, friend, enemy, leader, partner, or cooperation label.
 
-The table holds at most 64 individuals. Entries unseen for 600 ticks expire; when
+The table holds at most 96 individuals. Entries unseen for 600 ticks expire; when
 capacity is exceeded, the least recently seen and least encountered entries leave
-first. Offspring inherit mutated neural parameters but receive an empty social
+first. A 2,000-step seed-3 pilot at capacity 64 averaged 89 capacity evictions
+per animal, a 39.7% eviction rate, and 94-tick current-entry lifetimes. Capacity
+96 reduced those values to 50 evictions and 20.6% while extending current-entry
+lifetimes to 141 ticks; known-individual encounters also rose from 91.7% to
+92.1%. Neither run produced stale eviction, so the 600-tick timeout was retained.
+Offspring inherit mutated neural parameters but receive an empty social
 table, empty trajectory, zero recurrent state, and no recent action/outcome
 context.
 
@@ -178,7 +193,10 @@ reproduction, and starvation. Directional pursuit and flight are innate and have
 no reward-shaping terms. `--instinct-only` neither evaluates nor updates the
 adaptive layer. `--feedforward-learning` provides the V3-style baseline,
 `--temporal-learning` enables V4.1 recurrence without individual memory, and
-`--social-learning` enables the complete V5 controller.
+`--social-learning` enables the complete V5.1 controller. Ecological ablations
+are available through `--social-ablation identity-shuffled`,
+`--social-ablation embeddings-disabled`, and `--social-ablation order-reversed`;
+`--reset-social-at STEP` clears all private social tables during a batch run.
 
 ## Ecological rules
 
@@ -196,14 +214,15 @@ growth.
 
 ## Snapshots
 
-V5 snapshots are versioned gzip-compressed JSON. They contain the step, seed,
+V5.1 snapshots are versioned gzip-compressed JSON. They contain the step, seed,
 mode, full configuration, plant grid, every organism's physiology, orientation,
 lineage, encoder and all GRU gate parameters, current 12-value memory, the
 partially filled trajectory with its recurrent activations, previous action and
 per-head outcomes, learning baselines, instinct state, arbiter weights and last
 decisions, reproductive readiness, metrics/history, ID allocator, and Python RNG
-state, plus every social entry, embedding, encounter count, last-seen tick,
-outcome trace, and last visible IDs used by metrics. Saves use an atomic
+state, plus shared entity-encoder parameters, every social entry and embedding,
+encounter/lifetime counters, eviction telemetry, and last visible IDs used by
+metrics. Saves use an atomic
 replacement. Earlier snapshot versions are rejected.
 
 ```bash
@@ -213,7 +232,7 @@ gzip -dc snapshots/seed3.eco.gz | python -m json.tool | less
 The deterministic continuation test advances an original and restored simulation
 and compares resources, organisms, controller state, metrics, and actions exactly.
 
-## V5 validation and observed behavior
+## V5.1 validation and observed behavior
 
 The critical instinct-only gate ran seeds 3–5 for 12,000 steps. It reproduced the
 V3 population trajectory at every 2,000-step checkpoint, showing that private
