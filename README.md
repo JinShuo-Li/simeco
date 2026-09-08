@@ -1,15 +1,15 @@
-# simeco V4 — Temporal Learning & Memory
+# simeco V4.1 — Stronger Temporal Learning
 
 A spatial predator–prey ecosystem built for a headless Linux terminal. Plants
 grow over a toroidal grid, herbivores graze, predators hunt, and both animal
 populations reproduce, age, compete, and die. Population targets, emergency
 births, and extinction-prevention rules are absent.
 
-V4 preserves V3's embodiment and adds private temporal state. Every animal has an
+V4.1 preserves V3's embodiment and V4's private temporal state. Every animal has an
 orientation and owns three controller objects:
 
 - a species-specific `InstinctController` with fixed survival rules;
-- its own 33–10–6 recurrent–12 `AdaptivePolicy` and learning state;
+- its own 33–16–12 gated recurrent–12 `AdaptivePolicy` and learning state;
 - an `ActionArbiter` that mixes instinct and learned residual preferences.
 
 Offspring receive a mutated deep copy of the parent's learned parameters, while
@@ -62,6 +62,8 @@ ecosystem run --load snapshots/seed3.eco.gz --steps 2000 \
   --snapshot snapshots/seed3-resumed.eco.gz
 ecosystem compare --steps 5000 --seed 3 --replicates 3 \
   --output runs/comparison.json
+ecosystem benchmark --episodes 6000 --seed 41 \
+  --output runs/delayed-cue.json
 ```
 
 `--no-learning` is an alias for `--instinct-only`. Inspect saved state and
@@ -117,24 +119,30 @@ instinct turns toward prey, attacks co-located prey, uses cruise effort during
 pursuit, searches when hungry, conserves effort with no prey, and gates
 reproduction by physiology.
 
-The adaptive policy first encodes the 33-value perception through ten tanh units.
-A six-value leaky tanh recurrence then combines that encoding with its previous
-memory, a 12-value one-hot representation of the previous four-head action, and
-the previous four head-specific outcomes. The current encoding and new memory emit
-one bounded residual for each of the 12 action logits.
+The adaptive policy encodes the 33-value perception through 16 tanh units. A
+12-value GRU-like state uses separate update, reset, and candidate gates. Its
+input is the encoding plus a 12-value one-hot representation of the previous
+four-head action and the previous four head-specific outcomes. The current
+encoding and new memory emit one bounded residual for each of the 12 action
+logits. Memory-to-action weights start at exactly zero, so an untrained animal has
+no random temporal influence even though its gates can begin forming state.
 
-The recurrence is trained with one-step truncated gradients, so it remains cheap
-and inspectable while state carries information across arbitrary numbers of ticks.
-There is no replay buffer, planning, prediction head, identity, or shared memory.
-Instinct remains entirely memoryless.
+Recurrent learning buffers eight transitions per organism and applies truncated
+backpropagation through time. Each action head receives its own discounted return
+with `gamma=0.95`; later food, capture, escape, reproduction, injury, or energy
+outcomes can therefore update earlier states and choices. Gradients are clipped,
+the short trajectory objective is normalized by its length, and negative
+advantages retain the 1.8× response. There is no replay buffer, PPO, framework,
+planning, prediction head, identity, or shared memory. Instinct remains entirely
+memoryless. Feedforward mode keeps immediate, per-head V3-style updates.
 
 The arbiter adds instinct at weight `1.0` and the adaptive residual at `0.12`,
 applies temperature `0.85` and 3.5% exploration, then samples each head
 separately. Strong survival instincts therefore work from birth while recurrent
 learning can refine effort, feeding, attacks, movement, and reproductive timing.
 
-Learning is a cheap immediate policy-gradient update against the individual's
-moving reward baseline. Negative surprises use a 1.8× rate. Outcomes include
+Learning uses a policy-gradient update against the individual's moving per-head
+reward baselines. Outcomes include
 energy spent, food gained, capture success or failure, escape, survival,
 reproduction, and starvation. Directional pursuit and flight are innate and have
 no reward-shaping terms. `--instinct-only` neither evaluates nor updates the
@@ -158,13 +166,15 @@ growth.
 
 ## Snapshots
 
-V4 snapshots are versioned gzip-compressed JSON. They contain the step, seed,
+V4.1 snapshots are versioned gzip-compressed JSON. They contain the step, seed,
 mode, full configuration, plant grid, every organism's physiology, orientation,
-lineage, feedforward and recurrent parameters, current six-value memory, previous
-action and per-head outcomes, learning baselines, instinct state, arbiter weights
-and last decisions, reproductive readiness, metrics/history, ID allocator, and
-Python RNG state. Saves use an atomic replacement. Earlier snapshots are rejected
-because they do not contain the recurrent state required for faithful continuation.
+lineage, encoder and all GRU gate parameters, current 12-value memory, the
+partially filled trajectory with its recurrent activations, previous action and
+per-head outcomes, learning baselines, instinct state, arbiter weights and last
+decisions, reproductive readiness, metrics/history, ID allocator, and Python RNG
+state. Saves use an atomic replacement. Runtime state and trajectory start empty
+at birth; learned encoder, gate, and output parameters are inherited with
+mutation. Earlier snapshot versions are rejected.
 
 ```bash
 gzip -dc snapshots/seed3.eco.gz | python -m json.tool | less
@@ -173,7 +183,7 @@ gzip -dc snapshots/seed3.eco.gz | python -m json.tool | less
 The deterministic continuation test advances an original and restored simulation
 and compares resources, organisms, controller state, metrics, and actions exactly.
 
-## Validation and observed behavior
+## V4.1 validation and observed behavior
 
 The critical instinct-only gate ran seeds 3–5 for 12,000 steps. It reproduced the
 V3 population trajectory at every 2,000-step checkpoint, showing that private
@@ -192,24 +202,34 @@ co-located prey (`0.9764`), and choose low effort while satiated with no prey
 hunt energy efficiency, sprint fractions, unnecessary sprinting, reproductive
 intent efficiency, starvation, survival, and rewards.
 
-V4 adds controlled counterfactual probes in which the current blank perception is
-identical but the preceding cue differs: food vanished, danger vanished, prey
-vanished, or a sprint pursuit recently failed. Feedforward and instinct modes
-produce zero context effect. After 5,000 recurrent-learning steps, mean absolute
-action-probability shifts were `0.00212` for vanished food, `0.00212` for
-post-danger turning, `0.00097` for post-danger sprinting, `0.00144` for lost
-prey, and `0.00270` after failed pursuit. Food, turn, and sprint context
-sensitivity grew by roughly 49%, 53%, and 51% from their pre-learning values.
+The independent delayed-cue benchmark presents LEFT or RIGHT, replaces it with
+identical blank observations for delays 1, 2, 4, and 8, and rewards only the final
+choice. Seed 41 scored 50% at every delay before training and 100% at every delay
+after 6,000 balanced episodes. This is the direct percentage-scale evidence that
+identical current input produces different learned actions from prior context.
+The command reports all delay accuracies and uses a nine-transition truncation so
+the cue plus eight blanks remain in one graph.
 
-The complete three-mode results are in
-`experiments/v4_temporal_comparison.json`. Across seeds 3–5 at 5,000 steps, V4
-had zero starvation deaths versus two for V3 learning and three for instinct-only.
-Compared with V3 learning, predator sprint use fell 3.4%, hunt-energy efficiency
-rose 0.6%, and all species survived. Food-energy efficiency fell 4.5%, predator
-reward fell 2.0%, and hunt frequency was essentially flat. Signed temporal
-responses varied by seed: post-danger turning persisted slightly on average, while
-sprinting fell after danger disappeared; sustained pursuit did not emerge
-consistently. These mixed results retain every seed.
+Ecological counterfactuals isolate previous perception, action, outcome, and full
+natural history while holding the current blank perception identical. Across
+seeds 3–5 after 5,000 steps, full vanished-food context changed action probability
+by `0.00164`, `0.00236`, `0.00294`, and `0.00334` at delays 1, 2, 4,
+and 8. Post-danger effects were `0.00163`, `0.00245`, `0.00330`, and
+`0.00390`; lost-prey pursuit effects were smaller at `0.00010` through
+`0.00022`. For food at delay 2, perception-only, action-only, outcome-only,
+and full effects were `0.00029`, `0.00199`, `0.00124`, and `0.00236`.
+These natural effects persist across the measured horizon but remain below one
+percentage point under the conservative unchanged arbiter.
+
+The full three-mode means are in
+`experiments/v4_1_validation.json`. Across seeds 3–5 at 5,000 steps, recurrent
+learning had zero starvation deaths, versus one total in feedforward and three in
+instinct-only. Final mean populations were `142/5.67` recurrent,
+`142/6.0` feedforward, and `134.33/6.67` instinct-only. Relative to
+feedforward, recurrent herbivore reward rose 2.2%, while food-energy efficiency
+fell 0.4%, hunt efficiency fell 3.7%, predator reward fell 1.0%, and unnecessary
+sprinting rose 7.7%. These mixed results include every planned seed and do not
+claim a general ecological efficiency win.
 
 ## Tests
 
@@ -221,7 +241,7 @@ python -m unittest discover -s tests -v
 Tests cover rotated perception, distant egocentric sectors, physiology, all action
 heads, instinct responses, independent recurrent parameters and state, temporal
 context dependence under identical current input, fresh offspring memory,
-head-specific learning, feedforward mode, ecological events, deterministic V4
+head-specific learning, feedforward mode, ecological events, deterministic V4.1
 snapshot continuation, and TUI rendering.
 
 Headless TUI smoke test:

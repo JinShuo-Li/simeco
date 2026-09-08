@@ -1,0 +1,74 @@
+{
+  "protocol": {
+    "ecosystem_seeds": [3, 4, 5],
+    "comparison_steps": 5000,
+    "instinct_gate_steps": 12000,
+    "selection": "all planned consecutive seeds",
+    "tbptt": {"unroll": 8, "gamma": 0.95}
+  },
+  "synthetic_delayed_cue": {
+    "seed": 41,
+    "episodes": 6000,
+    "trials": 400,
+    "unroll": 9,
+    "before": {"1": 0.5, "2": 0.5, "4": 0.5, "8": 0.5},
+    "after": {"1": 1.0, "2": 1.0, "4": 1.0, "8": 1.0}
+  },
+  "instinct_only_gate": [
+    {"seed": 3, "herbivores": 56, "predators": 3, "max_generation": 33},
+    {"seed": 4, "herbivores": 66, "predators": 7, "max_generation": 33},
+    {"seed": 5, "herbivores": 98, "predators": 4, "max_generation": 33}
+  ],
+  "comparison_mean": {
+    "instinct_only": {
+      "herbivores": 134.33333,
+      "predators": 6.66667,
+      "deaths_starvation": 1.0,
+      "food_energy_per_herbivore_energy_spent": 10.02473,
+      "hunt_energy_per_predator_energy_spent": 1.8748,
+      "hunt_success": 0.21193,
+      "herbivore_sprint_fraction": 0.14283,
+      "predator_sprint_fraction": 0.04387,
+      "unnecessary_sprint_fraction": 0.0883,
+      "herbivore_reward_per_step": 70.2099,
+      "predator_reward_per_step": -0.3479
+    },
+    "feedforward_learning": {
+      "herbivores": 142.0,
+      "predators": 6.0,
+      "deaths_starvation": 0.33333,
+      "food_energy_per_herbivore_energy_spent": 9.37427,
+      "hunt_energy_per_predator_energy_spent": 1.82413,
+      "hunt_success": 0.20905,
+      "herbivore_sprint_fraction": 0.13453,
+      "predator_sprint_fraction": 0.04117,
+      "unnecessary_sprint_fraction": 0.08217,
+      "herbivore_reward_per_step": 65.00497,
+      "predator_reward_per_step": -0.33873
+    },
+    "recurrent_learning": {
+      "herbivores": 142.0,
+      "predators": 5.66667,
+      "deaths_starvation": 0.0,
+      "food_energy_per_herbivore_energy_spent": 9.3366,
+      "hunt_energy_per_predator_energy_spent": 1.75723,
+      "hunt_success": 0.20648,
+      "herbivore_sprint_fraction": 0.1419,
+      "predator_sprint_fraction": 0.0424,
+      "unnecessary_sprint_fraction": 0.0885,
+      "herbivore_reward_per_step": 66.4151,
+      "predator_reward_per_step": -0.3421
+    }
+  },
+  "recurrent_context_effect_mean": {
+    "food_full": {"1": 0.00164, "2": 0.00236, "4": 0.00294, "8": 0.00334},
+    "escape_full": {"1": 0.00163, "2": 0.00245, "4": 0.00330, "8": 0.00390},
+    "pursuit_full": {"1": 0.00010, "2": 0.00017, "4": 0.00021, "8": 0.00022},
+    "food_source_at_delay_2": {
+      "perception_only": 0.00029,
+      "action_only": 0.00199,
+      "outcome_only": 0.00124,
+      "full": 0.00236
+    }
+  }
+}
