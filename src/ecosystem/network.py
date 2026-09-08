@@ -284,9 +284,15 @@ class AdaptivePolicy:
            "wz":_zeros(self.memory_size,self.recurrent_inputs),"uz":_zeros(self.memory_size,self.memory_size),"bz":[0.0]*self.memory_size,
            "wr":_zeros(self.memory_size,self.recurrent_inputs),"ur":_zeros(self.memory_size,self.memory_size),"br":[0.0]*self.memory_size,
            "wh":_zeros(self.memory_size,self.recurrent_inputs),"uh":_zeros(self.memory_size,self.memory_size),"bh":[0.0]*self.memory_size}
-        social_gradients={}
+        social_gradients={}; social_associations={}
         dh_future=[0.0]*self.memory_size
         for t,discounted in zip(reversed(self.trajectory),reversed(returns)):
+            association=max(-1.0,min(1.0,sum(discounted)/len(discounted)))
+            for identity in set(t.get("social_keys", [])):
+                if identity is None:
+                    continue
+                total,observations=social_associations.get(identity,(0.0,0))
+                social_associations[identity]=(total+association,observations+1)
             od=self._policy_delta(t,discounted)
             _outer_add(g["w2"],od,t["encoded"]); _outer_add(g["wm_out"],od,t["memory_after"])
             for i,v in enumerate(od): g["b2"][i]+=v
@@ -325,14 +331,20 @@ class AdaptivePolicy:
                 for i,v in enumerate(grow): row[i]+=scale*max(-3.0,min(3.0,v))
         for name in ("b1","b2","bz","br","bh"):
             for i,v in enumerate(g[name]): getattr(self,name)[i]+=scale*max(-3.0,min(3.0,v))
-        for identity,gradient in social_gradients.items():
+        for identity in set(social_gradients)|set(social_associations):
             entry=self.social_memory.get(identity)
             if entry is None:
                 continue
+            gradient=social_gradients.get(identity,[0.0]*SOCIAL_EMBEDDING_SIZE)
             entry["embedding"]=[
                 max(-1.0,min(1.0,value+scale*max(-3.0,min(3.0,change))))
                 for value,change in zip(entry["embedding"],gradient)
             ]
+            if identity in social_associations:
+                total,observations=social_associations[identity]
+                entry["embedding"][0]=max(
+                    -1.0,min(1.0,.98*entry["embedding"][0]+.02*total/observations)
+                )
         self.tbptt_updates+=1; self.trajectory.clear()
 
     def reset_runtime_memory(self):
