@@ -1,6 +1,7 @@
 import unittest
 
 from ecosystem.simulation import OBSERVATION_SIZE, Simulation
+from ecosystem.reporting import summary
 
 
 class SimulationTests(unittest.TestCase):
@@ -36,6 +37,14 @@ class SimulationTests(unittest.TestCase):
             self.assertEqual(animal.adaptive_policy.updates, 0)
             self.assertEqual(animal.adaptive_policy.w1, original)
         self.assertEqual(simulation.metrics.learning_updates, 0)
+
+    def test_behavior_probes_respond_to_physiology_and_local_cues(self):
+        result = summary(Simulation(seed=3, learning=False))
+        self.assertGreater(result["hunger_food_approach_delta"], 0.2)
+        self.assertGreater(result["hunger_feed_delta"], 0.0)
+        self.assertGreater(result["predator_hunger_search_delta"], 0.1)
+        self.assertGreater(result["prey_flee_turn"], 0.9)
+        self.assertGreater(result["predator_attack"], 0.9)
 
 
 if __name__ == "__main__":

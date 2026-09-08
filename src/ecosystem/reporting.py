@@ -30,6 +30,10 @@ def summary(simulation: Simulation) -> dict:
 
     hungry_food = probe(energy=0.2)
     hungry_food[channel_index("plants", 1, 0)] = 1.0
+    satiated_food = probe(energy=0.9)
+    satiated_food[channel_index("plants", 1, 0)] = 1.0
+    hungry_on_food = probe(energy=0.2, food_here=1.0)
+    satiated_on_food = probe(energy=0.9, food_here=1.0)
     danger_ahead = probe(energy=0.5)
     danger_ahead[channel_index("predators", 1, 0)] = 1.0
     prey_ahead = probe(energy=0.35)
@@ -37,8 +41,18 @@ def summary(simulation: Simulation) -> dict:
     prey_here = probe(energy=0.35)
     prey_here[channel_index("herbivores", 0, 0)] = 1.0
     satiated = probe(energy=0.9)
+    hungry = probe(energy=0.2)
 
     food_approach = sum(probabilities(a, hungry_food)[Locomotion.FORWARD] for a in herbivores) / max(1, len(herbivores))
+    satiated_food_approach = sum(
+        probabilities(a, satiated_food)[Locomotion.FORWARD] for a in herbivores
+    ) / max(1, len(herbivores))
+    hungry_feed = sum(
+        probabilities(a, hungry_on_food)[7 + Interaction.FEED] for a in herbivores
+    ) / max(1, len(herbivores))
+    satiated_feed = sum(
+        probabilities(a, satiated_on_food)[7 + Interaction.FEED] for a in herbivores
+    ) / max(1, len(herbivores))
     flee_turn = sum(
         probabilities(a, danger_ahead)[Locomotion.TURN_LEFT]
         + probabilities(a, danger_ahead)[Locomotion.TURN_RIGHT]
@@ -48,6 +62,12 @@ def summary(simulation: Simulation) -> dict:
     pursuit = sum(probabilities(a, prey_ahead)[Locomotion.FORWARD] for a in predators) / max(1, len(predators))
     attack = sum(probabilities(a, prey_here)[7 + Interaction.ATTACK] for a in predators) / max(1, len(predators))
     conserve = sum(probabilities(a, satiated)[4 + Effort.LOW] for a in predators) / max(1, len(predators))
+    hungry_search = sum(
+        probabilities(a, hungry)[Locomotion.FORWARD] for a in predators
+    ) / max(1, len(predators))
+    satiated_search = sum(
+        probabilities(a, satiated)[Locomotion.FORWARD] for a in predators
+    ) / max(1, len(predators))
     all_efforts = sum(simulation.metrics.efforts_herbivore) + sum(simulation.metrics.efforts_predator)
     return {
         "seed": simulation.seed,
@@ -104,11 +124,14 @@ def summary(simulation: Simulation) -> dict:
             / max(1, simulation.metrics.reproduction_intents_predator), 4
         ),
         "hungry_food_approach": round(food_approach, 4),
+        "hunger_food_approach_delta": round(food_approach - satiated_food_approach, 4),
+        "hunger_feed_delta": round(hungry_feed - satiated_feed, 4),
         "prey_flee_turn": round(flee_turn, 4),
         "prey_flee_sprint": round(flee_sprint, 4),
         "predator_pursuit": round(pursuit, 4),
         "predator_attack": round(attack, 4),
         "predator_energy_conservation": round(conserve, 4),
+        "predator_hunger_search_delta": round(hungry_search - satiated_search, 4),
     }
 
 
