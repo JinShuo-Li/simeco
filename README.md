@@ -163,8 +163,9 @@ and compares resources, organisms, controller state, metrics, and actions exactl
 
 The critical instinct-only gate ran seeds 3–5 for 12,000 steps. All three trophic
 levels survived, including after the 9,000-step predator founder lifespan. Final
-herbivore/predator populations were `91/3`, `72/3`, and `76/3`; predator
-lineages reached generation 2 and herbivore lineages reached generation 33.
+herbivore/predator populations were `56/3`, `66/7`, and `98/4`; predator
+lineages reached generations 3, 2, and 2, while herbivore lineages reached
+generation 33.
 Populations rose and fell without target-size logic.
 
 The behavioral probes expose action probabilities under controlled observations:
