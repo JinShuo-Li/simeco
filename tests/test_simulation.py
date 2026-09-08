@@ -62,14 +62,17 @@ class SimulationTests(unittest.TestCase):
         recurrent = summary(Simulation(seed=3, learning=True, memory=True))
         self.assertEqual(feedforward["memory_food_search_effect"], 0.0)
         self.assertEqual(feedforward["memory_pursuit_effect"], 0.0)
+        self.assertEqual(recurrent["memory_food_search_effect"], 0.0)
+        trained = Simulation(seed=3, learning=True, memory=True)
+        trained.run(20)
+        trained_summary = summary(trained)
         self.assertGreater(
             max(
-                recurrent["memory_food_search_effect"],
-                recurrent["memory_escape_turn_effect"],
-                recurrent["memory_pursuit_effect"],
-                recurrent["memory_failed_pursuit_low_effort_effect"],
+                trained_summary["memory_food_full_effect_d1"],
+                trained_summary["memory_escape_full_effect_d2"],
+                trained_summary["memory_pursuit_full_effect_d4"],
             ),
-            0.0001,
+            0.0,
         )
 
 

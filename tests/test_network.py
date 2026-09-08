@@ -31,8 +31,13 @@ class AdaptivePolicyTests(unittest.TestCase):
     def test_identical_observation_depends_on_prior_cue(self):
         policy = AdaptivePolicy.random(2, 2, TOTAL_ACTION_OUTPUTS, random.Random(3), memory_size=2)
         policy.w1 = [[0.0, 2.0], [0.0, 0.0]]
+        policy.wz = [[0.0] * len(policy.wz[0]) for _ in range(2)]
+        policy.uz = [[0.0] * 2 for _ in range(2)]
         policy.wr = [[0.0] * len(policy.wr[0]) for _ in range(2)]
-        policy.wr[0][0] = 2.0
+        policy.ur = [[0.0] * 2 for _ in range(2)]
+        policy.wh = [[0.0] * len(policy.wh[0]) for _ in range(2)]
+        policy.uh = [[0.0] * 2 for _ in range(2)]
+        policy.wh[0][0] = 2.0
         policy.wm_out[Locomotion.FORWARD][0] = 2.0
         blank = [0.0, 0.0]
         cue = [0.0, 1.0]
@@ -52,7 +57,7 @@ class AdaptivePolicyTests(unittest.TestCase):
         before = policy.probabilities(observation)[1]
         combined = [0.25] * 4 + [1 / 3] * 3 + [1 / 3] * 3 + [0.5] * 2
         policy.record_decision(observation, action, combined)
-        policy.learn(2.0, 0.1)
+        policy.learn(2.0, 0.1, terminal=True)
         after = policy.probabilities(observation)[1]
         self.assertGreater(after, before)
 

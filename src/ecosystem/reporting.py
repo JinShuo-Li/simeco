@@ -30,21 +30,21 @@ def summary(simulation: Simulation) -> dict:
         )
 
     def temporal_delta(
-        animals,
-        cue,
-        current,
-        indices,
-        previous_actions,
-        previous_outcomes,
+        animals, cue, current, indices, previous_actions, previous_outcomes,
+        delay=1, source="full",
     ):
         if not animals or not simulation.memory:
             return 0.0, 0.0
         total = 0.0
         absolute_total = 0.0
-        for animal in animals:
+        # Probes do not consume simulation RNG. A bounded cohort keeps reporting cheap.
+        for animal in sorted(animals, key=lambda item: item.id)[:24]:
             saved = animal.adaptive_policy.to_dict()
             baseline = AdaptivePolicy.from_dict(saved)
             baseline.reset_runtime_memory()
+            baseline.advance(current, use_memory=True)
+            for _ in range(delay - 1):
+                baseline.advance(current, use_memory=True)
             baseline_preferences = baseline.advance(current, use_memory=True)
             baseline_probabilities = animal.arbiter.probabilities(
                 animal.instinct.preferences(current),
@@ -53,9 +53,13 @@ def summary(simulation: Simulation) -> dict:
             )
             contextual = AdaptivePolicy.from_dict(saved)
             contextual.reset_runtime_memory()
-            contextual.advance(cue, use_memory=True)
-            contextual.previous_actions = list(previous_actions)
-            contextual.previous_outcomes = list(previous_outcomes)
+            contextual.advance(cue if source in ("perception", "full") else current, use_memory=True)
+            if source in ("action", "full"):
+                contextual.previous_actions = list(previous_actions)
+            if source in ("outcome", "full"):
+                contextual.previous_outcomes = list(previous_outcomes)
+            for _ in range(delay - 1):
+                contextual.advance(current, use_memory=True)
             contextual_preferences = contextual.advance(current, use_memory=True)
             contextual_probabilities = animal.arbiter.probabilities(
                 animal.instinct.preferences(current),
@@ -66,7 +70,8 @@ def summary(simulation: Simulation) -> dict:
             difference -= sum(baseline_probabilities[index] for index in indices)
             total += difference
             absolute_total += abs(difference)
-        return total / len(animals), absolute_total / len(animals)
+        count = min(24, len(animals))
+        return total / count, absolute_total / count
 
     hungry_food = probe(energy=0.2)
     hungry_food[channel_index("plants", 1, 0)] = 1.0
@@ -124,6 +129,29 @@ def summary(simulation: Simulation) -> dict:
         [Locomotion.FORWARD, Effort.SPRINT, Interaction.ATTACK, Reproduction.DEFER],
         [-0.4, -0.8, -0.4, 0.01],
     )
+    temporal_probe_effects = {}
+    probe_cases = {
+        "food": (herbivores, hungry_food, [Locomotion.FORWARD],
+                 [Locomotion.FORWARD, Effort.CRUISE, Interaction.FEED, Reproduction.DEFER],
+                 [0.8, 0.5, 2.0, 0.01]),
+        "escape": (herbivores, danger_ahead, [Locomotion.TURN_LEFT, Locomotion.TURN_RIGHT],
+                   [Locomotion.TURN_LEFT, Effort.SPRINT, Interaction.NONE, Reproduction.DEFER],
+                   [-0.1, -0.2, 0.01, 0.01]),
+        "pursuit": (predators, prey_ahead, [Locomotion.FORWARD],
+                    [Locomotion.FORWARD, Effort.SPRINT, Interaction.ATTACK, Reproduction.DEFER],
+                    [-0.4, -0.8, -0.4, 0.01]),
+    }
+    for name, (animals, cue, indices, actions, outcomes) in probe_cases.items():
+        for delay in (1, 2, 4, 8):
+            _, effect = temporal_delta(
+                animals, cue, blank, indices, actions, outcomes, delay, "full"
+            )
+            temporal_probe_effects[f"memory_{name}_full_effect_d{delay}"] = round(effect, 5)
+        for source in ("perception", "action", "outcome"):
+            _, effect = temporal_delta(
+                animals, cue, blank, indices, actions, outcomes, 2, source
+            )
+            temporal_probe_effects[f"memory_{name}_{source}_effect_d2"] = round(effect, 5)
 
     food_approach = sum(probabilities(a, hungry_food)[Locomotion.FORWARD] for a in herbivores) / max(1, len(herbivores))
     satiated_food_approach = sum(
@@ -151,7 +179,7 @@ def summary(simulation: Simulation) -> dict:
         probabilities(a, satiated)[Locomotion.FORWARD] for a in predators
     ) / max(1, len(predators))
     all_efforts = sum(simulation.metrics.efforts_herbivore) + sum(simulation.metrics.efforts_predator)
-    return {
+    result = {
         "seed": simulation.seed,
         "learning": simulation.learning,
         "controller_mode": simulation.controller_mode,
@@ -247,6 +275,8 @@ def summary(simulation: Simulation) -> dict:
             5,
         ),
     }
+    result.update(temporal_probe_effects)
+    return result
 
 
 def write_history(simulation: Simulation, path: str | Path) -> Path:

@@ -32,7 +32,7 @@ class SnapshotTests(unittest.TestCase):
             path = save_snapshot(simulation, Path(directory) / "state.eco.gz")
             with gzip.open(path, "rt", encoding="utf-8") as handle:
                 payload = json.load(handle)
-        self.assertEqual(payload["version"], 4)
+        self.assertEqual(payload["version"], 5)
         self.assertEqual(payload["controller_mode"], "instinct+learning+memory")
         self.assertTrue(payload["memory"])
         animal = payload["organisms"][0]
@@ -44,8 +44,12 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(animal["adaptive_policy"]["inputs"], 33)
         self.assertEqual(animal["adaptive_policy"]["outputs"], 12)
         self.assertEqual(len(animal["adaptive_policy"]["head_baselines"]), 4)
-        self.assertEqual(len(animal["adaptive_policy"]["memory"]), 6)
-        self.assertEqual(len(animal["adaptive_policy"]["wr"]), 6)
+        self.assertEqual(animal["adaptive_policy"]["hidden"], 16)
+        self.assertEqual(len(animal["adaptive_policy"]["memory"]), 12)
+        self.assertEqual(len(animal["adaptive_policy"]["wz"]), 12)
+        self.assertEqual(len(animal["adaptive_policy"]["wr"]), 12)
+        self.assertEqual(len(animal["adaptive_policy"]["wh"]), 12)
+        self.assertIn("trajectory", animal["adaptive_policy"])
         self.assertEqual(len(animal["adaptive_policy"]["previous_outcomes"]), 4)
         self.assertTrue(any(animal["adaptive_policy"]["memory"]))
         self.assertIsNotNone(animal["adaptive_policy"]["previous_actions"])
