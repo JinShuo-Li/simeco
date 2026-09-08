@@ -25,15 +25,16 @@ class SnapshotTests(unittest.TestCase):
         )
         self.assertEqual(simulation.metrics.to_dict(), restored.metrics.to_dict())
 
-    def test_v3_snapshot_contains_embodied_controller_state(self):
-        simulation = Simulation(seed=7, learning=False)
+    def test_v4_snapshot_contains_recurrent_controller_state(self):
+        simulation = Simulation(seed=7, learning=True, memory=True)
         simulation.run(2)
         with tempfile.TemporaryDirectory() as directory:
             path = save_snapshot(simulation, Path(directory) / "state.eco.gz")
             with gzip.open(path, "rt", encoding="utf-8") as handle:
                 payload = json.load(handle)
-        self.assertEqual(payload["version"], 3)
-        self.assertEqual(payload["controller_mode"], "instinct_only")
+        self.assertEqual(payload["version"], 4)
+        self.assertEqual(payload["controller_mode"], "instinct+learning+memory")
+        self.assertTrue(payload["memory"])
         animal = payload["organisms"][0]
         self.assertIn("instinct", animal)
         self.assertIn("adaptive_policy", animal)
@@ -43,6 +44,11 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(animal["adaptive_policy"]["inputs"], 33)
         self.assertEqual(animal["adaptive_policy"]["outputs"], 12)
         self.assertEqual(len(animal["adaptive_policy"]["head_baselines"]), 4)
+        self.assertEqual(len(animal["adaptive_policy"]["memory"]), 6)
+        self.assertEqual(len(animal["adaptive_policy"]["wr"]), 6)
+        self.assertEqual(len(animal["adaptive_policy"]["previous_outcomes"]), 4)
+        self.assertTrue(any(animal["adaptive_policy"]["memory"]))
+        self.assertIsNotNone(animal["adaptive_policy"]["previous_actions"])
         self.assertEqual(len(animal["arbiter"]["last_actions"]), 4)
 
 

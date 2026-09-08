@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "living-ecosystem"
-version = "3.0.0"
+version = "4.0.0"
 description = "A terminal-observable spatial predator-prey ecosystem"
 requires-python = ">=3.11"
 

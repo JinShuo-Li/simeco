@@ -12,13 +12,19 @@ from .snapshot import load_snapshot, save_snapshot
 
 
 def _simulation(args: argparse.Namespace) -> Simulation:
+    requested_mode = getattr(args, "controller_mode", None)
     if getattr(args, "load", None):
         simulation = load_snapshot(args.load)
-        if getattr(args, "learning", None) is not None:
-            simulation.learning = args.learning
+        if requested_mode is not None:
+            simulation.learning = requested_mode != "instinct_only"
+            simulation.memory = requested_mode == "instinct+learning+memory"
         return simulation
-    learning = True if getattr(args, "learning", None) is None else args.learning
-    return Simulation(seed=args.seed, learning=learning)
+    mode = requested_mode or "instinct+learning+memory"
+    return Simulation(
+        seed=args.seed,
+        learning=mode != "instinct_only",
+        memory=mode == "instinct+learning+memory",
+    )
 
 
 def run_batch(args: argparse.Namespace) -> int:
@@ -35,8 +41,8 @@ def run_batch(args: argparse.Namespace) -> int:
 def run_compare(args: argparse.Namespace) -> int:
     rows = []
     for seed in range(args.seed, args.seed + args.replicates):
-        for learning in (False, True):
-            simulation = Simulation(seed=seed, learning=learning)
+        for learning, memory in ((False, False), (True, False), (True, True)):
+            simulation = Simulation(seed=seed, learning=learning, memory=memory)
             simulation.run(args.steps)
             rows.append(summary(simulation))
     if args.output:
@@ -58,11 +64,22 @@ def run_inspect(args: argparse.Namespace) -> int:
     data = animal.to_dict()
     policy = data.pop("adaptive_policy")
     data["adaptive_policy_summary"] = {
-        "shape": [policy["inputs"], policy["hidden"], policy["outputs"]],
+        "shape": [policy["inputs"], policy["hidden"], policy["memory_size"], policy["outputs"]],
         "updates": policy["updates"],
         "reward_total": policy["reward_total"],
         "baseline": policy["baseline"],
-        "parameter_count": policy["hidden"] * policy["inputs"] + policy["hidden"] + policy["outputs"] * policy["hidden"] + policy["outputs"],
+        "memory": policy["memory"],
+        "previous_actions": policy["previous_actions"],
+        "previous_outcomes": policy["previous_outcomes"],
+        "parameter_count": (
+            policy["hidden"] * policy["inputs"]
+            + policy["hidden"]
+            + policy["outputs"] * policy["hidden"]
+            + policy["outputs"]
+            + policy["memory_size"] * len(policy["wr"][0])
+            + policy["memory_size"]
+            + policy["outputs"] * policy["memory_size"]
+        ),
     }
     if args.weights:
         data["adaptive_policy"] = policy
@@ -92,13 +109,24 @@ def parser() -> argparse.ArgumentParser:
     batch.add_argument("--snapshot", metavar="PATH")
     batch.add_argument("--metrics", metavar="CSV")
     learning = batch.add_mutually_exclusive_group()
-    learning.add_argument("--learning", action="store_true", dest="learning", default=None,
-                          help="use instinct plus lifetime learning (default)")
-    learning.add_argument("--instinct-only", "--no-learning", action="store_false", dest="learning",
-                          help="use innate behavior without adaptive influence or updates")
+    learning.add_argument(
+        "--learning", action="store_const", const="instinct+learning+memory",
+        dest="controller_mode", default=None,
+        help="use instinct plus recurrent lifetime learning (default)",
+    )
+    learning.add_argument(
+        "--feedforward-learning", action="store_const", const="instinct+learning",
+        dest="controller_mode", help="use the V3-style adaptive policy without memory",
+    )
+    learning.add_argument(
+        "--instinct-only", "--no-learning", action="store_const", const="instinct_only",
+        dest="controller_mode", help="use innate behavior without adaptive influence or updates",
+    )
     batch.set_defaults(func=run_batch)
 
-    compare = subparsers.add_parser("compare", help="compare instinct-only and instinct+learning modes")
+    compare = subparsers.add_parser(
+        "compare", help="compare instinct-only, feed-forward, and recurrent modes"
+    )
     compare.add_argument("--steps", type=int, default=1500)
     compare.add_argument("--seed", type=int, default=3)
     compare.add_argument("--replicates", type=int, default=3)
@@ -118,10 +146,19 @@ def parser() -> argparse.ArgumentParser:
     tui.add_argument("--max-steps", type=int, help=argparse.SUPPRESS)
     tui.add_argument("--save-on-exit", action="store_true")
     learning = tui.add_mutually_exclusive_group()
-    learning.add_argument("--learning", action="store_true", dest="learning", default=None,
-                          help="use instinct plus lifetime learning (default)")
-    learning.add_argument("--instinct-only", "--no-learning", action="store_false", dest="learning",
-                          help="use innate behavior without adaptive influence or updates")
+    learning.add_argument(
+        "--learning", action="store_const", const="instinct+learning+memory",
+        dest="controller_mode", default=None,
+        help="use instinct plus recurrent lifetime learning (default)",
+    )
+    learning.add_argument(
+        "--feedforward-learning", action="store_const", const="instinct+learning",
+        dest="controller_mode", help="use the V3-style adaptive policy without memory",
+    )
+    learning.add_argument(
+        "--instinct-only", "--no-learning", action="store_const", const="instinct_only",
+        dest="controller_mode", help="use innate behavior without adaptive influence or updates",
+    )
     tui.set_defaults(func=run_interactive)
     return root
 

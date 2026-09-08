@@ -72,7 +72,7 @@ def summary(simulation: Simulation) -> dict:
     return {
         "seed": simulation.seed,
         "learning": simulation.learning,
-        "controller_mode": "instinct+learning" if simulation.learning else "instinct_only",
+        "controller_mode": simulation.controller_mode,
         "step": simulation.step_count,
         "herbivores": len(herbivores),
         "predators": len(predators),

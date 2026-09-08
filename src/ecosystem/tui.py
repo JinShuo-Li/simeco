@@ -105,8 +105,8 @@ class TerminalUI:
         screen.erase()
         height, width = screen.getmaxyx()
         sim = self.simulation
-        mode = "INSTINCT+LEARNING" if sim.learning else "INSTINCT ONLY"
-        header = f" LIVING ECOSYSTEM V3  step {sim.step_count:,}  {'PAUSED' if self.paused else f'{self.speed}x'}  {mode} "
+        mode = sim.controller_mode.replace("_", " ").upper()
+        header = f" LIVING ECOSYSTEM V4  step {sim.step_count:,}  {'PAUSED' if self.paused else f'{self.speed}x'}  {mode} "
         self._put(screen, 0, 0, header, curses.A_REVERSE)
         map_height = min(sim.config.height, max(3, height - 5))
         side_width = 30 if width >= 76 else 0
@@ -179,6 +179,8 @@ class TerminalUI:
         if selected:
             heading = "^>v<"[selected.heading]
             heads = selected.arbiter.last_actions
+            memory_activity = sum(abs(value) for value in selected.adaptive_policy.memory)
+            recent_outcome = sum(selected.adaptive_policy.previous_outcomes)
             action = ""
             if heads is not None:
                 action = (
@@ -190,7 +192,8 @@ class TerminalUI:
             detail = (
                 f"#{selected.id} {selected.species} {heading} E={selected.energy:.1f} age={selected.age} "
                 f"gen={selected.generation} meals={selected.meals} children={selected.offspring_count} "
-                f"reward={selected.lifetime_reward:.1f} updates={selected.adaptive_policy.updates}{action}"
+                f"reward={selected.lifetime_reward:.1f} updates={selected.adaptive_policy.updates} "
+                f"mem={memory_activity:.2f} last={recent_outcome:+.2f}{action}"
             )
             self._put(screen, footer_y + 1, 0, detail, curses.color_pair(4) if curses.has_colors() else 0)
         elif self.message:

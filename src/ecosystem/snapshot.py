@@ -13,7 +13,7 @@ from .model import Metrics, Organism
 from .simulation import Simulation
 
 SNAPSHOT_FORMAT = "living-ecosystem"
-SNAPSHOT_VERSION = 3
+SNAPSHOT_VERSION = 4
 
 
 def save_snapshot(simulation: Simulation, path: str | Path) -> Path:
@@ -26,7 +26,8 @@ def save_snapshot(simulation: Simulation, path: str | Path) -> Path:
         "step": simulation.step_count,
         "seed": simulation.seed,
         "learning": simulation.learning,
-        "controller_mode": "instinct+learning" if simulation.learning else "instinct_only",
+        "controller_mode": simulation.controller_mode,
+        "memory": simulation.memory,
         "next_id": simulation.next_id,
         "config": simulation.config.to_dict(),
         "resources": simulation.resources,
@@ -63,10 +64,8 @@ def load_snapshot(path: str | Path) -> Simulation:
     simulation = Simulation.__new__(Simulation)
     simulation.config = WorldConfig.from_dict(payload["config"])
     simulation.seed = payload["seed"]
-    if "controller_mode" in payload:
-        simulation.learning = payload["controller_mode"] == "instinct+learning"
-    else:
-        simulation.learning = payload["learning"]
+    simulation.learning = payload["learning"]
+    simulation.memory = payload["memory"]
     simulation.step_count = payload["step"]
     simulation.next_id = payload["next_id"]
     simulation.resources = payload["resources"]
