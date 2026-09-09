@@ -9,13 +9,17 @@ from pathlib import Path
 from .reporting import print_summary, summary, write_history
 from .benchmark import run_memory_benchmark
 from .social_benchmark import run_social_benchmark
+from .communication_benchmark import run_communication_benchmark
 from .simulation import Simulation
 from .snapshot import load_snapshot, save_snapshot
+from .v6_validation import run_v6_validation
 
 
 def _simulation(args: argparse.Namespace) -> Simulation:
     requested_mode = getattr(args, "controller_mode", None)
     ablation = getattr(args, "social_ablation", "none")
+    communication_ablation = getattr(args, "communication_ablation", "none")
+    communication = not getattr(args, "no_communication", False)
     if getattr(args, "load", None):
         simulation = load_snapshot(args.load)
         if requested_mode is not None:
@@ -27,6 +31,18 @@ def _simulation(args: argparse.Namespace) -> Simulation:
         simulation.social_identity_shuffle = ablation == "identity-shuffled"
         simulation.social_embeddings = ablation != "embeddings-disabled"
         simulation.reverse_entity_order = ablation == "order-reversed"
+        simulation.communication = communication
+        simulation.transmission_enabled = communication_ablation != "sender-disabled"
+        simulation.inbox_enabled = communication_ablation != "inbox-disabled"
+        simulation.token_permutation = (
+            [0, 2, 3, 4, 5, 6, 7, 8, 1]
+            if communication_ablation == "tokens-permuted" else None
+        )
+        simulation.randomize_received_tokens = communication_ablation == "tokens-randomized"
+        simulation.randomize_signal_strengths = communication_ablation == "strengths-randomized"
+        simulation.communication_sender_identity_shuffle = (
+            communication_ablation == "sender-identity-shuffled"
+        )
         return simulation
     mode = requested_mode or "instinct+learning+memory+social"
     return Simulation(
@@ -37,6 +53,18 @@ def _simulation(args: argparse.Namespace) -> Simulation:
         social_identity_shuffle=ablation == "identity-shuffled",
         social_embeddings=ablation != "embeddings-disabled",
         reverse_entity_order=ablation == "order-reversed",
+        communication=communication,
+        transmission_enabled=communication_ablation != "sender-disabled",
+        inbox_enabled=communication_ablation != "inbox-disabled",
+        token_permutation=(
+            [0, 2, 3, 4, 5, 6, 7, 8, 1]
+            if communication_ablation == "tokens-permuted" else None
+        ),
+        randomize_received_tokens=communication_ablation == "tokens-randomized",
+        randomize_signal_strengths=communication_ablation == "strengths-randomized",
+        communication_sender_identity_shuffle=(
+            communication_ablation == "sender-identity-shuffled"
+        ),
     )
 
 
@@ -149,6 +177,30 @@ def run_social_benchmark_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_communication_benchmark_command(args: argparse.Namespace) -> int:
+    rows = [
+        run_communication_benchmark(seed, args.episodes, args.trials)
+        for seed in range(args.seed, args.seed + args.replicates)
+    ]
+    result = {"runs": rows}
+    if args.output:
+        destination = Path(args.output)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+def run_v6_validation_command(args: argparse.Namespace) -> int:
+    result = run_v6_validation(
+        steps=args.steps,
+        seeds=range(args.seed, args.seed + args.replicates),
+        output=args.output,
+    )
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="ecosystem", description="A learning predator-prey ecosystem")
     subparsers = root.add_subparsers(dest="command")
@@ -165,6 +217,18 @@ def parser() -> argparse.ArgumentParser:
         default="none",
     )
     batch.add_argument("--reset-social-at", type=int, metavar="STEP")
+    batch.add_argument(
+        "--no-communication", action="store_true",
+        help="run the V5.1 social learner without communication",
+    )
+    batch.add_argument(
+        "--communication-ablation",
+        choices=(
+            "none", "sender-disabled", "inbox-disabled", "tokens-permuted",
+            "tokens-randomized", "strengths-randomized", "sender-identity-shuffled",
+        ),
+        default="none",
+    )
     learning = batch.add_mutually_exclusive_group()
     learning.add_argument(
         "--learning", "--social-learning", action="store_const",
@@ -209,6 +273,25 @@ def parser() -> argparse.ArgumentParser:
     social_benchmark.add_argument("--episodes", type=int, default=5000)
     social_benchmark.add_argument("--output", metavar="JSON")
     social_benchmark.set_defaults(func=run_social_benchmark_command)
+
+    communication_benchmark = subparsers.add_parser(
+        "communication-benchmark", help="train and causally ablate hidden-cue signaling"
+    )
+    communication_benchmark.add_argument("--seed", type=int, default=3)
+    communication_benchmark.add_argument("--replicates", type=int, default=5)
+    communication_benchmark.add_argument("--episodes", type=int, default=4000)
+    communication_benchmark.add_argument("--trials", type=int, default=400)
+    communication_benchmark.add_argument("--output", metavar="JSON")
+    communication_benchmark.set_defaults(func=run_communication_benchmark_command)
+
+    validation = subparsers.add_parser(
+        "v6-validate", help="run the short-run paired ecosystem communication study"
+    )
+    validation.add_argument("--steps", type=int, default=2000)
+    validation.add_argument("--seed", type=int, default=3)
+    validation.add_argument("--replicates", type=int, default=5)
+    validation.add_argument("--output", default="experiments/v6_short_run_validation.json")
+    validation.set_defaults(func=run_v6_validation_command)
 
     inspect = subparsers.add_parser("inspect", help="inspect a saved ecosystem or organism")
     inspect.add_argument("snapshot")

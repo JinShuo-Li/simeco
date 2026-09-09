@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from pathlib import Path
 
 from .actions import Effort, Interaction, Locomotion, Reproduction
@@ -11,6 +12,24 @@ from .network import AdaptivePolicy
 from .perception import OBSERVATION_SIZE, channel_index
 from .simulation import Simulation
 from .social import SOCIAL_PHYSICAL_SIZE
+
+
+def mutual_information(table: list[list[int]]) -> float:
+    """Discrete mutual information in bits for an analysis contingency table."""
+    total = sum(sum(row) for row in table)
+    if total == 0:
+        return 0.0
+    row_totals = [sum(row) for row in table]
+    columns = max((len(row) for row in table), default=0)
+    column_totals = [sum(row[column] for row in table) for column in range(columns)]
+    result = 0.0
+    for row_index, row in enumerate(table):
+        for column, count in enumerate(row):
+            if count:
+                result += count / total * math.log2(
+                    count * total / (row_totals[row_index] * column_totals[column])
+                )
+    return result
 
 
 def summary(simulation: Simulation) -> dict:
@@ -223,6 +242,21 @@ def summary(simulation: Simulation) -> dict:
         probabilities(a, satiated)[Locomotion.FORWARD] for a in predators
     ) / max(1, len(predators))
     all_efforts = sum(simulation.metrics.efforts_herbivore) + sum(simulation.metrics.efforts_predator)
+    communication_actions = simulation.metrics.signals + simulation.metrics.silences
+    token_total = sum(simulation.metrics.signal_token_counts)
+    context_probabilities = {}
+    context_information = {}
+    for name, table in simulation.metrics.token_context_counts.items():
+        present = table[1]
+        context_probabilities[name] = [
+            round(count / max(1, sum(present)), 5) for count in present
+        ]
+        context_information[name] = round(mutual_information(table), 6)
+    outcome_table = [
+        [simulation.metrics.token_future_outcome_counts[token][outcome]
+         for token in range(9)]
+        for outcome in range(3)
+    ]
     social_stats=[
         animal.adaptive_policy.social_statistics(simulation.step_count)
         for animal in simulation.organisms.values()
@@ -233,6 +267,7 @@ def summary(simulation: Simulation) -> dict:
         "seed": simulation.seed,
         "learning": simulation.learning,
         "controller_mode": simulation.controller_mode,
+        "communication": simulation.communication,
         "step": simulation.step_count,
         "herbivores": len(herbivores),
         "predators": len(predators),
@@ -301,6 +336,41 @@ def summary(simulation: Simulation) -> dict:
             simulation.metrics.repeated_predator_colocations
             / max(1, simulation.metrics.predator_colocations), 4
         ),
+        "signal_rate": round(simulation.metrics.signals / max(1, communication_actions), 5),
+        "silence_rate": round(simulation.metrics.silences / max(1, communication_actions), 5),
+        "signal_token_distribution": [
+            round(count / max(1, token_total), 5)
+            for count in simulation.metrics.signal_token_counts
+        ],
+        "mean_signal_strength": round(sum(
+            strength * count
+            for strength, count in enumerate(simulation.metrics.signal_strength_counts)
+        ) / max(1, sum(simulation.metrics.signal_strength_counts)), 5),
+        "communication_energy_cost": round(
+            simulation.metrics.communication_energy_cost, 5
+        ),
+        "communication_energy_fraction": round(
+            simulation.metrics.communication_energy_cost
+            / max(0.001, simulation.metrics.energy_spent_herbivore
+                  + simulation.metrics.energy_spent_predator), 6
+        ),
+        "messages_delivered": simulation.metrics.messages_delivered,
+        "sender_receiver_species": simulation.metrics.sender_receiver_species,
+        "token_given_context": context_probabilities,
+        "signal_context_mutual_information_bits": context_information,
+        "signal_receiver_action_mutual_information_bits": round(
+            mutual_information(simulation.metrics.token_receiver_actions), 6
+        ),
+        "signal_future_outcome_mutual_information_bits": round(
+            mutual_information(outcome_table), 6
+        ),
+        "mean_future_reward_by_received_token": [
+            round(total / max(1, count), 5)
+            for total, count in zip(
+                simulation.metrics.token_future_reward_sum,
+                simulation.metrics.token_future_reward_count,
+            )
+        ],
         "mean_social_memory_entries": round(
             mean_social("entries"), 3
         ),
