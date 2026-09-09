@@ -16,6 +16,7 @@ from .actions import (
 from .network import AdaptivePolicy
 from .perception import OBSERVATION_SIZE
 from .social import MESSAGE_FEATURE_SIZE, SOCIAL_PHYSICAL_SIZE
+from .reporting import mutual_information
 
 SENDER_ID = 101
 
@@ -175,6 +176,10 @@ def _evaluate(sender, receiver, intervention: str, seed: int, trials: int = 400)
         "accuracy": round(correct / trials, 4),
         "cue_token_counts": table,
         "token_receiver_action_counts": actions,
+        "cue_token_mutual_information_bits": round(mutual_information(table), 6),
+        "token_receiver_action_mutual_information_bits": round(
+            mutual_information(actions), 6
+        ),
     }
 
 

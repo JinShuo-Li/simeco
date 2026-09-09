@@ -342,6 +342,11 @@ def summary(simulation: Simulation) -> dict:
             round(count / max(1, token_total), 5)
             for count in simulation.metrics.signal_token_counts
         ],
+        "signal_token_counts": simulation.metrics.signal_token_counts,
+        "signal_strength_distribution": [
+            round(count / max(1, sum(simulation.metrics.signal_strength_counts)), 5)
+            for count in simulation.metrics.signal_strength_counts
+        ],
         "mean_signal_strength": round(sum(
             strength * count
             for strength, count in enumerate(simulation.metrics.signal_strength_counts)
@@ -356,6 +361,7 @@ def summary(simulation: Simulation) -> dict:
         ),
         "messages_delivered": simulation.metrics.messages_delivered,
         "sender_receiver_species": simulation.metrics.sender_receiver_species,
+        "sender_token_counts": simulation.metrics.sender_token_counts,
         "token_given_context": context_probabilities,
         "signal_context_mutual_information_bits": context_information,
         "signal_receiver_action_mutual_information_bits": round(
@@ -371,6 +377,10 @@ def summary(simulation: Simulation) -> dict:
                 simulation.metrics.token_future_reward_count,
             )
         ],
+        "token_receiver_action_counts": simulation.metrics.token_receiver_actions,
+        "token_future_outcome_counts": simulation.metrics.token_future_outcome_counts,
+        "energy_spent_herbivore": round(simulation.metrics.energy_spent_herbivore, 4),
+        "energy_spent_predator": round(simulation.metrics.energy_spent_predator, 4),
         "mean_social_memory_entries": round(
             mean_social("entries"), 3
         ),
