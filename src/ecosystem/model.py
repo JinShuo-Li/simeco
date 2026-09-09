@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 from .controllers import ActionArbiter, InstinctController
 from .network import AdaptivePolicy
+from .actions import CommunicationAction
 
 
 @dataclass(slots=True)
@@ -28,6 +29,9 @@ class Organism:
     reproduction_progress: float = 0.0
     action_counts: list[int] = field(default_factory=lambda: [0, 0, 0, 0])
     visible_ids_last_tick: list[int] = field(default_factory=list)
+    communication: CommunicationAction = field(default_factory=CommunicationAction)
+    inbox: list[dict] = field(default_factory=list)
+    last_attacked_step: int = -1000000
 
     def to_dict(self) -> dict:
         return {
@@ -49,6 +53,9 @@ class Organism:
             "reproduction_progress": self.reproduction_progress,
             "action_counts": self.action_counts,
             "visible_ids_last_tick": self.visible_ids_last_tick,
+            "communication": self.communication.to_dict(),
+            "inbox": self.inbox,
+            "last_attacked_step": self.last_attacked_step,
         }
 
     @classmethod
@@ -67,6 +74,9 @@ class Organism:
         values.setdefault("visible_ids_last_tick", [])
         values.setdefault("reproduction_progress", 0.0)
         values.setdefault("heading", 0)
+        values["communication"] = CommunicationAction(**values.get("communication", {}))
+        values.setdefault("inbox", [])
+        values.setdefault("last_attacked_step", -1000000)
         return cls(**values)
 
     @property
@@ -112,6 +122,24 @@ class Metrics:
     follow_actions: int = 0
     predator_colocations: int = 0
     repeated_predator_colocations: int = 0
+    signals: int = 0
+    silences: int = 0
+    signal_token_counts: list[int] = field(default_factory=lambda: [0] * 9)
+    signal_strength_counts: list[int] = field(default_factory=lambda: [0] * 3)
+    communication_energy_cost: float = 0.0
+    messages_delivered: int = 0
+    expired_messages: int = 0
+    token_context_counts: dict[str, list[list[int]]] = field(default_factory=dict)
+    token_receiver_actions: list[list[int]] = field(
+        default_factory=lambda: [[0] * 4 for _ in range(9)]
+    )
+    token_future_reward_sum: list[float] = field(default_factory=lambda: [0.0] * 9)
+    token_future_reward_count: list[int] = field(default_factory=lambda: [0] * 9)
+    token_future_outcome_counts: list[list[int]] = field(
+        default_factory=lambda: [[0] * 3 for _ in range(9)]
+    )
+    sender_token_counts: dict[str, list[int]] = field(default_factory=dict)
+    sender_receiver_species: dict[str, int] = field(default_factory=dict)
     history: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -151,6 +179,20 @@ class Metrics:
             "follow_actions": self.follow_actions,
             "predator_colocations": self.predator_colocations,
             "repeated_predator_colocations": self.repeated_predator_colocations,
+            "signals": self.signals,
+            "silences": self.silences,
+            "signal_token_counts": self.signal_token_counts,
+            "signal_strength_counts": self.signal_strength_counts,
+            "communication_energy_cost": self.communication_energy_cost,
+            "messages_delivered": self.messages_delivered,
+            "expired_messages": self.expired_messages,
+            "token_context_counts": self.token_context_counts,
+            "token_receiver_actions": self.token_receiver_actions,
+            "token_future_reward_sum": self.token_future_reward_sum,
+            "token_future_reward_count": self.token_future_reward_count,
+            "token_future_outcome_counts": self.token_future_outcome_counts,
+            "sender_token_counts": self.sender_token_counts,
+            "sender_receiver_species": self.sender_receiver_species,
             "history": self.history,
         }
 
@@ -181,4 +223,18 @@ class Metrics:
         values.setdefault("follow_actions", 0)
         values.setdefault("predator_colocations", 0)
         values.setdefault("repeated_predator_colocations", 0)
+        values.setdefault("signals", 0)
+        values.setdefault("silences", 0)
+        values.setdefault("signal_token_counts", [0] * 9)
+        values.setdefault("signal_strength_counts", [0] * 3)
+        values.setdefault("communication_energy_cost", 0.0)
+        values.setdefault("messages_delivered", 0)
+        values.setdefault("expired_messages", 0)
+        values.setdefault("token_context_counts", {})
+        values.setdefault("token_receiver_actions", [[0] * 4 for _ in range(9)])
+        values.setdefault("token_future_reward_sum", [0.0] * 9)
+        values.setdefault("token_future_reward_count", [0] * 9)
+        values.setdefault("token_future_outcome_counts", [[0] * 3 for _ in range(9)])
+        values.setdefault("sender_token_counts", {})
+        values.setdefault("sender_receiver_species", {})
         return cls(**values)

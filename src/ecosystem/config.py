@@ -40,6 +40,7 @@ class WorldConfig:
     prey_energy_fraction: float = 0.50
     capture_probability: float = 0.20
     crowding_cost: float = 0.10
+    communication_enabled: bool = True
     history_interval: int = 10
     herbivore: SpeciesConfig = field(
         default_factory=lambda: SpeciesConfig(

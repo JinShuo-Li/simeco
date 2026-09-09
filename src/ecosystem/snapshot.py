@@ -13,7 +13,7 @@ from .model import Metrics, Organism
 from .simulation import Simulation
 
 SNAPSHOT_FORMAT = "living-ecosystem"
-SNAPSHOT_VERSION = 7
+SNAPSHOT_VERSION = 8
 
 
 def save_snapshot(simulation: Simulation, path: str | Path) -> Path:
@@ -32,6 +32,13 @@ def save_snapshot(simulation: Simulation, path: str | Path) -> Path:
         "social_identity_shuffle": simulation.social_identity_shuffle,
         "social_embeddings": simulation.social_embeddings,
         "reverse_entity_order": simulation.reverse_entity_order,
+        "communication": simulation.communication,
+        "transmission_enabled": simulation.transmission_enabled,
+        "inbox_enabled": simulation.inbox_enabled,
+        "token_permutation": simulation.token_permutation,
+        "randomize_received_tokens": simulation.randomize_received_tokens,
+        "randomize_signal_strengths": simulation.randomize_signal_strengths,
+        "communication_sender_identity_shuffle": simulation.communication_sender_identity_shuffle,
         "next_id": simulation.next_id,
         "config": simulation.config.to_dict(),
         "resources": simulation.resources,
@@ -74,6 +81,15 @@ def load_snapshot(path: str | Path) -> Simulation:
     simulation.social_identity_shuffle = payload["social_identity_shuffle"]
     simulation.social_embeddings = payload["social_embeddings"]
     simulation.reverse_entity_order = payload["reverse_entity_order"]
+    simulation.communication = payload["communication"]
+    simulation.transmission_enabled = payload["transmission_enabled"]
+    simulation.inbox_enabled = payload["inbox_enabled"]
+    simulation.token_permutation = payload["token_permutation"]
+    simulation.randomize_received_tokens = payload["randomize_received_tokens"]
+    simulation.randomize_signal_strengths = payload["randomize_signal_strengths"]
+    simulation.communication_sender_identity_shuffle = payload[
+        "communication_sender_identity_shuffle"
+    ]
     simulation.step_count = payload["step"]
     simulation.next_id = payload["next_id"]
     simulation.resources = payload["resources"]

@@ -25,15 +25,15 @@ class SnapshotTests(unittest.TestCase):
         )
         self.assertEqual(simulation.metrics.to_dict(), restored.metrics.to_dict())
 
-    def test_v5_snapshot_contains_temporal_and_social_controller_state(self):
+    def test_v6_snapshot_contains_temporal_social_and_communication_state(self):
         simulation = Simulation(seed=7, learning=True, memory=True, social_memory=True)
         simulation.run(2)
         with tempfile.TemporaryDirectory() as directory:
             path = save_snapshot(simulation, Path(directory) / "state.eco.gz")
             with gzip.open(path, "rt", encoding="utf-8") as handle:
                 payload = json.load(handle)
-        self.assertEqual(payload["version"], 7)
-        self.assertEqual(payload["controller_mode"], "instinct+learning+memory+social")
+        self.assertEqual(payload["version"], 8)
+        self.assertEqual(payload["controller_mode"], "instinct+learning+memory+social+communication")
         self.assertTrue(payload["memory"])
         self.assertTrue(payload["social_memory"])
         self.assertTrue(payload["social_embeddings"])
@@ -47,8 +47,8 @@ class SnapshotTests(unittest.TestCase):
         self.assertIn("heading", animal)
         self.assertEqual(animal["adaptive_policy"]["inputs"], 49)
         self.assertEqual(animal["adaptive_policy"]["base_inputs"], 33)
-        self.assertEqual(animal["adaptive_policy"]["outputs"], 12)
-        self.assertEqual(len(animal["adaptive_policy"]["head_baselines"]), 4)
+        self.assertEqual(animal["adaptive_policy"]["outputs"], 24)
+        self.assertEqual(len(animal["adaptive_policy"]["head_baselines"]), 6)
         self.assertEqual(animal["adaptive_policy"]["hidden"], 16)
         self.assertEqual(len(animal["adaptive_policy"]["memory"]), 12)
         self.assertEqual(len(animal["adaptive_policy"]["wz"]), 12)
@@ -57,7 +57,7 @@ class SnapshotTests(unittest.TestCase):
         self.assertIn("trajectory", animal["adaptive_policy"])
         self.assertIn("social_memory", animal["adaptive_policy"])
         self.assertEqual(len(animal["adaptive_policy"]["entity_w"]), 8)
-        self.assertEqual(len(animal["adaptive_policy"]["entity_w"][0]), 18)
+        self.assertEqual(len(animal["adaptive_policy"]["entity_w"][0]), 33)
         self.assertIn("social_evictions_capacity", animal["adaptive_policy"])
         self.assertIn("social_known_encounters", animal["adaptive_policy"])
         social_entries = [
@@ -67,10 +67,13 @@ class SnapshotTests(unittest.TestCase):
         ]
         self.assertTrue(social_entries)
         self.assertTrue(all("outcome_trace" in entry for entry in social_entries))
-        self.assertEqual(len(animal["adaptive_policy"]["previous_outcomes"]), 4)
+        self.assertEqual(len(animal["adaptive_policy"]["previous_outcomes"]), 6)
         self.assertTrue(any(animal["adaptive_policy"]["memory"]))
         self.assertIsNotNone(animal["adaptive_policy"]["previous_actions"])
         self.assertEqual(len(animal["arbiter"]["last_actions"]), 4)
+        self.assertIn("communication", animal)
+        self.assertIn("inbox", animal)
+        self.assertTrue(payload["communication"])
 
 
 if __name__ == "__main__":

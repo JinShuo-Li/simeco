@@ -15,6 +15,16 @@ from .actions import (
     Interaction,
     Locomotion,
     Reproduction,
+    TOTAL_ADAPTIVE_OUTPUTS,
+    CommunicationAction,
+)
+from .communication import (
+    INBOX_CAPACITY,
+    choose_communication,
+    expire_inbox,
+    message_slot,
+    signal_cost,
+    signal_range,
 )
 from .config import SpeciesConfig, WorldConfig
 from .controllers import ActionArbiter, InstinctController
@@ -37,6 +47,13 @@ class Simulation:
         social_identity_shuffle: bool = False,
         social_embeddings: bool = True,
         reverse_entity_order: bool = False,
+        communication: bool | None = None,
+        transmission_enabled: bool = True,
+        inbox_enabled: bool = True,
+        token_permutation: list[int] | None = None,
+        randomize_received_tokens: bool = False,
+        randomize_signal_strengths: bool = False,
+        communication_sender_identity_shuffle: bool = False,
     ):
         self.config = config or WorldConfig()
         self.seed = seed
@@ -48,6 +65,15 @@ class Simulation:
         self.social_identity_shuffle = social_identity_shuffle
         self.social_embeddings = social_embeddings
         self.reverse_entity_order = reverse_entity_order
+        self.communication = (
+            self.config.communication_enabled if communication is None else communication
+        )
+        self.transmission_enabled = transmission_enabled
+        self.inbox_enabled = inbox_enabled
+        self.token_permutation = token_permutation
+        self.randomize_received_tokens = randomize_received_tokens
+        self.randomize_signal_strengths = randomize_signal_strengths
+        self.communication_sender_identity_shuffle = communication_sender_identity_shuffle
         self.rng = random.Random(seed)
         self.step_count = 0
         self.next_id = 1
@@ -74,7 +100,7 @@ class Simulation:
             policy = AdaptivePolicy.random(
                 OBSERVATION_SIZE,
                 cfg.hidden_size,
-                TOTAL_ACTION_OUTPUTS,
+                TOTAL_ADAPTIVE_OUTPUTS if self.communication else TOTAL_ACTION_OUTPUTS,
                 self.rng,
                 memory_size=cfg.memory_size,
             )
@@ -110,7 +136,24 @@ class Simulation:
             return "instinct_only"
         if not self.memory:
             return "instinct+learning"
-        return "instinct+learning+memory+social" if self.social_memory else "instinct+learning+memory"
+        base = "instinct+learning+memory+social" if self.social_memory else "instinct+learning+memory"
+        return base + "+communication" if self.communication else base
+
+    def _message_slots(self, animal: Organism, cfg: SpeciesConfig) -> list[dict]:
+        before = len(animal.inbox)
+        animal.inbox = expire_inbox(animal.inbox, self.step_count)
+        self.metrics.expired_messages += before - len(animal.inbox)
+        if not self.communication or not self.inbox_enabled:
+            return []
+        messages = animal.inbox[-INBOX_CAPACITY:]
+        if self.communication_sender_identity_shuffle and len(messages) > 1:
+            identities = [message["sender_id"] for message in messages]
+            messages = [
+                {**message, "sender_id": identities[(index + 1) % len(identities)]}
+                for index, message in enumerate(messages)
+            ]
+        return [message_slot(animal, message, self.config, cfg.vision, self.step_count)
+                for message in messages]
 
     def observe(self, organism: Organism, herbivores: list[Organism], predators: list[Organism]) -> list[float]:
         cfg = self.config.herbivore if organism.species == "herbivore" else self.config.predator
@@ -151,12 +194,15 @@ class Simulation:
         rewards: dict[int, float] = {}
         head_rewards: dict[int, list[float]] = {}
         decisions: dict[int, EmbodiedAction] = {}
+        communications: dict[int, CommunicationAction] = {}
+        received_tokens: dict[int, list[int]] = {}
         for animal in order:
             cfg = self.config.herbivore if animal.species == "herbivore" else self.config.predator
             observation = self.observe(animal, herbivores, predators)
             instinct_preferences = animal.instinct.preferences(observation)
             previous_action = animal.arbiter.last_actions
             social_slots = visible_individuals(animal, order, self.config, cfg)
+            message_slots = self._message_slots(animal, cfg)
             if self.social_identity_shuffle and len(social_slots)>1:
                 identities=[slot["id"] for slot in social_slots]
                 social_slots=[
@@ -165,17 +211,18 @@ class Simulation:
                 ]
             if self.reverse_entity_order:
                 social_slots=list(reversed(social_slots))
+            combined_slots = social_slots + message_slots
             adaptive_preferences = (
                 animal.adaptive_policy.advance(
                     observation,
                     use_memory=self.memory,
-                    social_slots=social_slots if self.social_memory else None,
+                    social_slots=combined_slots if self.social_memory else None,
                     social_enabled=self.social_memory,
                     step=self.step_count,
                     social_embeddings_enabled=self.social_embeddings,
                 )
                 if self.learning
-                else [0.0] * TOTAL_ACTION_OUTPUTS
+                else [0.0] * (TOTAL_ADAPTIVE_OUTPUTS if self.communication else TOTAL_ACTION_OUTPUTS)
             )
             action, combined_probabilities = animal.arbiter.choose(
                 instinct_preferences,
@@ -184,6 +231,14 @@ class Simulation:
                 rng=self.rng,
             )
             decisions[animal.id] = action
+            communication, communication_probabilities = choose_communication(
+                adaptive_preferences, self.rng, self.learning and self.communication
+            )
+            animal.communication = communication
+            communications[animal.id] = communication
+            received_tokens[animal.id] = [slot["token"] for slot in message_slots]
+            for token in received_tokens[animal.id]:
+                self.metrics.token_receiver_actions[token][action.locomotion] += 1
             visible_ids = [slot["id"] for slot in social_slots]
             previous_visible = set(animal.visible_ids_last_tick)
             self.metrics.social_encounters += len(visible_ids)
@@ -218,8 +273,11 @@ class Simulation:
             if self.learning:
                 animal.adaptive_policy.record_decision(
                     observation,
-                    action,
-                    combined_probabilities,
+                    action.indices() + communication.indices(),
+                    combined_probabilities + communication_probabilities,
+                    ([animal.arbiter.adaptive_weight / animal.arbiter.temperature] * 4
+                     + [1.0 / animal.arbiter.temperature] * 2)
+                    if self.communication else
                     animal.arbiter.adaptive_weight / animal.arbiter.temperature,
                 )
             animal.action_counts[action.locomotion] += 1
@@ -269,6 +327,41 @@ class Simulation:
                 cost = cfg.move_cost * (0.35, 0.55, 0.9)[action.effort]
             if action.interaction == Interaction.ATTACK:
                 cost += cfg.move_cost * 0.8
+            communication_cost = signal_cost(communication) if self.communication else 0.0
+            cost += communication_cost
+            if self.communication:
+                self.metrics.communication_energy_cost += communication_cost
+                self.metrics.signal_token_counts[communication.token] += 1
+                self.metrics.signal_strength_counts[communication.strength] += 1
+                if communication.token == 0:
+                    self.metrics.silences += 1
+                else:
+                    self.metrics.signals += 1
+                    sender_counts = self.metrics.sender_token_counts.setdefault(
+                        str(animal.id), [0] * 9
+                    )
+                    sender_counts[communication.token] += 1
+                contexts = {
+                    "predator_nearby": sum(
+                        observation[channel_index("predators", f, l)]
+                        for f in (-1, 0, 1) for l in (-1, 0, 1)
+                    ) > 0.0,
+                    "food_nearby": sum(
+                        observation[channel_index("plants", f, l)]
+                        for f in (-1, 0, 1) for l in (-1, 0, 1)
+                    ) > 0.0,
+                    "prey_nearby": sum(
+                        observation[channel_index("herbivores", f, l)]
+                        for f in (-1, 0, 1) for l in (-1, 0, 1)
+                    ) > 0.0,
+                    "high_hunger": observation[3] >= 0.7,
+                    "recent_attack": self.step_count - animal.last_attacked_step <= 3,
+                }
+                for name, present in contexts.items():
+                    table = self.metrics.token_context_counts.setdefault(
+                        name, [[0] * 9, [0] * 9]
+                    )
+                    table[int(present)][communication.token] += 1
             cost += self.config.crowding_cost * max(0, occupied[(animal.x, animal.y)] - 2)
             if animal.species == "predator":
                 cost += cfg.competition_cost * sum(
@@ -311,6 +404,8 @@ class Simulation:
             per_head[1] += 0.01
             rewards[animal.id] = reward
             head_rewards[animal.id] = per_head
+
+        self._transmit(communications)
 
         self._resolve_hunts(predators, decisions, rewards, head_rewards)
         newborns: list[Organism] = []
@@ -382,11 +477,19 @@ class Simulation:
                 else:
                     self.metrics.births_predator += 1
             animal.lifetime_reward += reward
+            for token in received_tokens.get(animal.id, []):
+                self.metrics.token_future_reward_sum[token] += reward
+                self.metrics.token_future_reward_count[token] += 1
+                outcome_bin = 0 if reward < -0.01 else (2 if reward > 0.01 else 1)
+                self.metrics.token_future_outcome_counts[token][outcome_bin] += 1
             if self.learning:
+                credited_rewards = head_rewards.get(animal.id)
+                if self.communication and credited_rewards is not None:
+                    credited_rewards = credited_rewards + [reward, reward]
                 animal.adaptive_policy.learn(
                     reward,
                     cfg.learning_rate,
-                    head_rewards.get(animal.id),
+                    credited_rewards,
                     terminal=animal.id in dead,
                 )
                 self.metrics.learning_updates += 1
@@ -403,6 +506,43 @@ class Simulation:
         self.last_events["deaths"] += len(dead)
         if self.step_count % self.config.history_interval == 0:
             self._record_history()
+
+    def _transmit(self, communications: dict[int, CommunicationAction]) -> None:
+        if not self.communication or not self.transmission_enabled:
+            return
+        animals = list(self.organisms.values())
+        for sender in animals:
+            action = communications.get(sender.id, CommunicationAction())
+            radius = signal_range(action)
+            if radius == 0:
+                continue
+            strength = action.strength
+            if self.randomize_signal_strengths:
+                strength = self.rng.randrange(3)
+                radius = signal_range(CommunicationAction(action.token, strength))
+            for receiver in animals:
+                if receiver.id == sender.id:
+                    continue
+                dx = (receiver.x - sender.x + self.config.width // 2) % self.config.width - self.config.width // 2
+                dy = (receiver.y - sender.y + self.config.height // 2) % self.config.height - self.config.height // 2
+                if abs(dx) + abs(dy) > radius:
+                    continue
+                token = action.token
+                if self.token_permutation is not None:
+                    token = self.token_permutation[token]
+                if self.randomize_received_tokens:
+                    token = self.rng.randrange(1, 9)
+                receiver.inbox.append({
+                    "sender_id": sender.id, "sender_x": sender.x, "sender_y": sender.y,
+                    "token": token, "strength": strength, "sent_step": self.step_count,
+                    "sender_species": sender.species,
+                })
+                receiver.inbox = receiver.inbox[-INBOX_CAPACITY:]
+                self.metrics.messages_delivered += 1
+                pair = f"{sender.species}->{receiver.species}"
+                self.metrics.sender_receiver_species[pair] = (
+                    self.metrics.sender_receiver_species.get(pair, 0) + 1
+                )
 
     def _resolve_hunts(
         self,
@@ -436,6 +576,7 @@ class Simulation:
             if prey.id not in self.organisms:
                 continue
             self.organisms.pop(prey.id)
+            prey.last_attacked_step = self.step_count
             gain = max(3.0, prey.energy * self.config.prey_energy_fraction)
             predator.energy = min(self.config.predator.max_energy, predator.energy + gain)
             self.metrics.energy_gained_predator += gain
@@ -493,6 +634,13 @@ class Simulation:
                 / max(1,prey_actions),
                 "predator_sprint_fraction": self.metrics.efforts_predator[Effort.SPRINT]
                 / max(1,predator_actions),
+                "signal_rate": self.metrics.signals
+                / max(1, self.metrics.signals + self.metrics.silences),
+                "mean_signal_strength": sum(
+                    index * count for index, count in enumerate(self.metrics.signal_strength_counts)
+                ) / max(1, sum(self.metrics.signal_strength_counts)),
+                "communication_energy_cost": self.metrics.communication_energy_cost,
+                "messages_delivered": self.metrics.messages_delivered,
             }
         )
 

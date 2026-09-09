@@ -8,10 +8,13 @@ from .perception import egocentric_vector
 
 SOCIAL_SLOTS = 8
 SOCIAL_PHYSICAL_SIZE = 14
+MESSAGE_FEATURE_SIZE = 15
+SOCIAL_SENSOR_SIZE = SOCIAL_PHYSICAL_SIZE + MESSAGE_FEATURE_SIZE
 SOCIAL_EMBEDDING_SIZE = 4
-SOCIAL_SLOT_SIZE = SOCIAL_PHYSICAL_SIZE + SOCIAL_EMBEDDING_SIZE
+SOCIAL_SLOT_SIZE = SOCIAL_SENSOR_SIZE + SOCIAL_EMBEDDING_SIZE
 ENTITY_HIDDEN_SIZE = 8
 SOCIAL_AGGREGATE_SIZE = ENTITY_HIDDEN_SIZE * 2
+ENTITY_SLOTS = SOCIAL_SLOTS + 6
 MAX_SOCIAL_ENTRIES = 96
 SOCIAL_STALE_TICKS = 600
 
@@ -72,6 +75,6 @@ def visible_individuals(observer, animals, world, species_config) -> list[dict]:
             action[2] / 2.0,
             float(action[3]),
         ]
-        visible.append((distance, other.id, {"id": other.id, "features": features}))
+        visible.append((distance, other.id, {"id": other.id, "features": features, "kind": "physical"}))
     visible.sort(key=lambda item: (item[0], item[1]))
     return [item[2] for item in visible[:SOCIAL_SLOTS]]

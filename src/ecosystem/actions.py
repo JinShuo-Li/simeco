@@ -34,6 +34,17 @@ HEAD_NAMES = ("locomotion", "effort", "interaction", "reproduction")
 HEAD_SIZES = (4, 3, 3, 2)
 TOTAL_ACTION_OUTPUTS = sum(HEAD_SIZES)
 
+# Communication is sampled only from the adaptive policy.  Keeping these heads
+# separate is important: innate preferences still cover exactly the four V5.1
+# embodied action heads and therefore cannot attach meaning to a signal.
+SIGNAL_TOKENS = 9
+SIGNAL_STRENGTHS = 3
+COMMUNICATION_HEAD_NAMES = ("signal_token", "signal_strength")
+COMMUNICATION_HEAD_SIZES = (SIGNAL_TOKENS, SIGNAL_STRENGTHS)
+ADAPTIVE_HEAD_NAMES = HEAD_NAMES + COMMUNICATION_HEAD_NAMES
+ADAPTIVE_HEAD_SIZES = HEAD_SIZES + COMMUNICATION_HEAD_SIZES
+TOTAL_ADAPTIVE_OUTPUTS = sum(ADAPTIVE_HEAD_SIZES)
+
 
 @dataclass(frozen=True, slots=True)
 class EmbodiedAction:
@@ -53,3 +64,17 @@ class EmbodiedAction:
 
     def to_dict(self) -> dict[str, int]:
         return dict(zip(HEAD_NAMES, self.indices()))
+
+
+@dataclass(frozen=True, slots=True)
+class CommunicationAction:
+    """Meaning-free adaptive emission: token zero is silence."""
+
+    token: int = 0
+    strength: int = 0
+
+    def indices(self) -> list[int]:
+        return [self.token, self.strength]
+
+    def to_dict(self) -> dict[str, int]:
+        return {"token": self.token, "strength": self.strength}

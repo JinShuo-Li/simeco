@@ -3,7 +3,7 @@ import unittest
 
 from ecosystem.actions import TOTAL_ACTION_OUTPUTS, EmbodiedAction, Locomotion
 from ecosystem.network import AdaptivePolicy
-from ecosystem.social import SOCIAL_PHYSICAL_SIZE
+from ecosystem.social import SOCIAL_PHYSICAL_SIZE, SOCIAL_SENSOR_SIZE
 
 
 class AdaptivePolicyTests(unittest.TestCase):
@@ -82,7 +82,7 @@ class AdaptivePolicyTests(unittest.TestCase):
         policy.w1 = [[0.0] * policy.inputs for _ in range(policy.hidden)]
         policy.w2 = [[0.0] * policy.hidden for _ in range(policy.outputs)]
         policy.entity_w = [[0.0] * len(policy.entity_w[0]) for _ in policy.entity_w]
-        policy.entity_w[0][SOCIAL_PHYSICAL_SIZE] = 2.0
+        policy.entity_w[0][SOCIAL_SENSOR_SIZE] = 2.0
         policy.w1[0][policy.base_inputs] = 2.0
         policy.w2[Locomotion.FORWARD][0] = 2.0
         policy.social_memory = {

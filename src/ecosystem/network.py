@@ -6,15 +6,22 @@ import math
 import random
 from dataclasses import dataclass, field
 from typing import Any
-from .actions import HEAD_SIZES, TOTAL_ACTION_OUTPUTS, EmbodiedAction
+from .actions import (
+    ADAPTIVE_HEAD_SIZES,
+    HEAD_SIZES,
+    TOTAL_ACTION_OUTPUTS,
+    TOTAL_ADAPTIVE_OUTPUTS,
+)
 from .social import (
     MAX_SOCIAL_ENTRIES,
     ENTITY_HIDDEN_SIZE,
     SOCIAL_AGGREGATE_SIZE,
     SOCIAL_EMBEDDING_SIZE,
     SOCIAL_PHYSICAL_SIZE,
+    SOCIAL_SENSOR_SIZE,
     SOCIAL_SLOT_SIZE,
     SOCIAL_SLOTS,
+    ENTITY_SLOTS,
     SOCIAL_STALE_TICKS,
 )
 
@@ -31,11 +38,11 @@ def _derived_rng(values):
     digest = hashlib.sha256(repr(values).encode()).digest()
     return random.Random(int.from_bytes(digest[:16], "big"))
 
-def _action_context(actions):
-    context = [0.0] * TOTAL_ACTION_OUTPUTS
+def _action_context(actions, head_sizes):
+    context = [0.0] * sum(head_sizes)
     if actions is not None:
         offset = 0
-        for size, action in zip(HEAD_SIZES, actions):
+        for size, action in zip(head_sizes, actions):
             if 0 <= action < size:
                 context[offset + action] = 1.0
             offset += size
@@ -103,7 +110,11 @@ class AdaptivePolicy:
 
     @property
     def recurrent_inputs(self):
-        return self.hidden + TOTAL_ACTION_OUTPUTS + OUTCOME_SIZE
+        return self.hidden + sum(self.head_sizes) + len(self.head_sizes)
+
+    @property
+    def head_sizes(self):
+        return ADAPTIVE_HEAD_SIZES if self.outputs == TOTAL_ADAPTIVE_OUTPUTS else HEAD_SIZES
 
     @classmethod
     def random(cls, inputs, hidden, outputs, rng, memory_size=12):
@@ -118,12 +129,15 @@ class AdaptivePolicy:
             for row in legacy_weights
         ]
         w1 += _matrix(hidden - legacy, total_inputs, private, math.sqrt(2.0 / total_inputs))
-        context = hidden + TOTAL_ACTION_OUTPUTS + OUTCOME_SIZE
+        head_sizes = ADAPTIVE_HEAD_SIZES if outputs == TOTAL_ADAPTIVE_OUTPUTS else HEAD_SIZES
+        context = hidden + sum(head_sizes) + len(head_sizes)
         gate_scale = math.sqrt(1.0 / context)
         state_scale = math.sqrt(1.0 / max(1, memory_size))
         return cls(
             total_inputs, hidden, outputs, w1, [0.0] * hidden,
-            _zeros(outputs, hidden), [0.0] * outputs, memory_size,
+            (_zeros(min(outputs, TOTAL_ACTION_OUTPUTS), hidden)
+             + _matrix(max(0, outputs - TOTAL_ACTION_OUTPUTS), hidden, private, 0.30)),
+            [0.0] * outputs, memory_size,
             _matrix(memory_size, context, private, gate_scale),
             _matrix(memory_size, memory_size, private, state_scale),
             [-0.35] * memory_size,
@@ -138,6 +152,8 @@ class AdaptivePolicy:
             [0.0] * ENTITY_HIDDEN_SIZE,
             base_inputs=base_inputs,
             memory=[0.0] * memory_size,
+            previous_outcomes=[0.0] * len(head_sizes),
+            head_baselines=[0.0] * len(head_sizes),
         )
 
     def _evict_social_entry(self, identity, step, reason):
@@ -165,7 +181,7 @@ class AdaptivePolicy:
             for identity in stale:
                 self._evict_social_entry(identity,step,"stale")
         entities=[]; keys=[]
-        for slot in (social_slots or [])[:SOCIAL_SLOTS]:
+        for slot in (social_slots or [])[:ENTITY_SLOTS]:
             identity=int(slot["id"]); entry=self.social_memory.get(identity)
             known=entry is not None
             if entry is None:
@@ -188,7 +204,9 @@ class AdaptivePolicy:
                 entry["max_streak"]=max(entry.get("max_streak",0),entry["consecutive_encounters"])
                 entry["encounters"]+=1; entry["last_seen"]=step
                 entry["distance_sum"]=entry.get("distance_sum",0.0)+slot["features"][2]
-            entity_input=list(slot["features"])+(
+            sensors = list(slot["features"])
+            sensors += [0.0] * (SOCIAL_SENSOR_SIZE - len(sensors))
+            entity_input=sensors[:SOCIAL_SENSOR_SIZE]+(
                 list(entry["embedding"]) if embeddings_enabled
                 else [0.0]*SOCIAL_EMBEDDING_SIZE
             )
@@ -229,9 +247,9 @@ class AdaptivePolicy:
         encoded = [math.tanh(sum(w*x for w, x in zip(row, observation)) + bias)
                    for row, bias in zip(self.w1, self.b1)]
         old = self.memory[:] if use_memory else [0.0] * self.memory_size
-        context = encoded + ((_action_context(self.previous_actions)
+        context = encoded + ((_action_context(self.previous_actions, self.head_sizes)
                    + [math.tanh(v) for v in self.previous_outcomes])
-                   if use_memory else [0.0] * (TOTAL_ACTION_OUTPUTS + OUTCOME_SIZE))
+                   if use_memory else [0.0] * (sum(self.head_sizes) + len(self.head_sizes)))
         if use_memory:
             update = [_sigmoid(sum(w*x for w,x in zip(row,context)) + sum(w*h for w,h in zip(urow,old)) + b)
                       for row,urow,b in zip(self.wz,self.uz,self.bz)]
@@ -279,9 +297,9 @@ class AdaptivePolicy:
     def record_decision(self, observation, action, combined_probabilities, gradient_scale=1.0):
         if self.last_observation != observation or self._pending is None:
             self.advance(observation)
-        self.last_actions = action.indices()
+        self.last_actions = action.indices() if hasattr(action, "indices") else list(action)
         self.last_probabilities = combined_probabilities[:]
-        self.last_gradient_scale = gradient_scale
+        self.last_gradient_scale = copy.deepcopy(gradient_scale)
         self._pending["actions"] = self.last_actions[:]
         self._pending["probabilities"] = combined_probabilities[:]
         self._pending["gradient_scale"] = gradient_scale
@@ -289,7 +307,7 @@ class AdaptivePolicy:
     def probabilities(self, observation, use_memory=True):
         logits = self.preferences(observation,use_memory)
         result=[]; offset=0
-        for size in HEAD_SIZES:
+        for size in self.head_sizes:
             head=logits[offset:offset+size]; peak=max(head)
             values=[math.exp(max(-30.0,v-peak)) for v in head]; total=sum(values)
             result += [v/total for v in values]; offset += size
@@ -298,7 +316,7 @@ class AdaptivePolicy:
     def learn(self, reward, learning_rate, head_rewards=None, terminal=False):
         if self.last_actions is None or self._pending is None:
             return
-        outcomes=list(head_rewards if head_rewards is not None else [reward]*len(HEAD_SIZES))
+        outcomes=list(head_rewards if head_rewards is not None else [reward]*len(self.head_sizes))
         self.reward_total += reward
         if not self._pending["use_memory"]:
             self._learn_feedforward(outcomes,learning_rate)
@@ -321,14 +339,18 @@ class AdaptivePolicy:
 
     def _policy_delta(self, transition, returns):
         delta=[0.0]*self.outputs; offset=0
-        for head,(size,action) in enumerate(zip(HEAD_SIZES,transition["actions"])):
+        for head,(size,action) in enumerate(zip(self.head_sizes,transition["actions"])):
             advantage=max(-4.0,min(4.0,returns[head]-self.head_baselines[head]))
             scale=1.8 if advantage<0 else 1.0
             for i in range(size):
                 delta[offset+i]=-transition["probabilities"][offset+i]*advantage*scale
             delta[offset+action]+=advantage*scale; offset+=size
-        return [v*transition["gradient_scale"]*self.residual_scale*(1-math.tanh(raw)**2)
-                for v,raw in zip(delta,transition["raw"])]
+        scales = transition["gradient_scale"]
+        if not isinstance(scales, list):
+            scales = [scales] * len(self.head_sizes)
+        expanded = [scale for size, scale in zip(self.head_sizes, scales) for _ in range(size)]
+        return [v*scale*self.residual_scale*(1-math.tanh(raw)**2)
+                for v,scale,raw in zip(delta,expanded,transition["raw"])]
 
     def _learn_feedforward(self,outcomes,rate):
         t=self._pending; delta=self._policy_delta(t,outcomes); old_w2=[row[:] for row in self.w2]
@@ -345,8 +367,8 @@ class AdaptivePolicy:
 
     def _learn_trajectory(self,rate):
         if not self.trajectory: return
-        count=len(self.trajectory); returns=[[0.0]*OUTCOME_SIZE for _ in range(count)]
-        future=[0.0]*OUTCOME_SIZE
+        count=len(self.trajectory); returns=[[0.0]*len(self.head_sizes) for _ in range(count)]
+        future=[0.0]*len(self.head_sizes)
         for i in range(count-1,-1,-1):
             future=[now+self.gamma*later for now,later in zip(self.trajectory[i]["outcomes"],future)]
             returns[i]=future[:]
@@ -415,7 +437,7 @@ class AdaptivePolicy:
                         entity["id"],[0.0]*SOCIAL_EMBEDDING_SIZE
                     )
                     for i in range(SOCIAL_EMBEDDING_SIZE):
-                        gradient[i]+=input_delta[SOCIAL_PHYSICAL_SIZE+i]
+                        gradient[i]+=input_delta[SOCIAL_SENSOR_SIZE+i]
             _outer_add(g["w1"],de,t["observation"])
             for i,v in enumerate(de): g["b1"][i]+=v
         scale=rate/count
@@ -436,7 +458,7 @@ class AdaptivePolicy:
 
     def reset_runtime_memory(self):
         self.memory=[0.0]*self.memory_size; self.previous_actions=None
-        self.previous_outcomes=[0.0]*OUTCOME_SIZE; self.trajectory.clear()
+        self.previous_outcomes=[0.0]*len(self.head_sizes); self.trajectory.clear()
         self.last_observation=None; self.last_actions=None; self.last_probabilities=None
         self.last_gradient_scale=1.0; self._pending=None
 
