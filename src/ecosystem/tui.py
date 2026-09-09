@@ -106,7 +106,7 @@ class TerminalUI:
         height, width = screen.getmaxyx()
         sim = self.simulation
         mode = sim.controller_mode.replace("_", " ").upper()
-        header = f" LIVING ECOSYSTEM V5.1  step {sim.step_count:,}  {'PAUSED' if self.paused else f'{self.speed}x'}  {mode} "
+        header = f" LIVING ECOSYSTEM V6  step {sim.step_count:,}  {'PAUSED' if self.paused else f'{self.speed}x'}  {mode} "
         self._put(screen, 0, 0, header, curses.A_REVERSE)
         map_height = min(sim.config.height, max(3, height - 5))
         side_width = 30 if width >= 76 else 0
@@ -190,6 +190,11 @@ class TerminalUI:
                     f"{Interaction(heads[2]).name.lower()}/"
                     f"{Reproduction(heads[3]).name.lower()}"
                 )
+                if sim.communication:
+                    action += (
+                        f" signal={selected.communication.token}:"
+                        f"{selected.communication.strength} inbox={len(selected.inbox)}"
+                    )
             detail = (
                 f"#{selected.id} {selected.species} {heading} E={selected.energy:.1f} age={selected.age} "
                 f"gen={selected.generation} meals={selected.meals} children={selected.offspring_count} "
