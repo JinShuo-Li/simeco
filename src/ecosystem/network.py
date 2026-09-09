@@ -20,6 +20,7 @@ from .social import (
     SOCIAL_PHYSICAL_SIZE,
     SOCIAL_SENSOR_SIZE,
     SOCIAL_SLOT_SIZE,
+    LEGACY_SOCIAL_SLOT_SIZE,
     SOCIAL_SLOTS,
     ENTITY_SLOTS,
     SOCIAL_STALE_TICKS,
@@ -148,7 +149,14 @@ class AdaptivePolicy:
             _matrix(memory_size, memory_size, private, state_scale),
             [0.0] * memory_size,
             _zeros(outputs, memory_size),
-            _matrix(ENTITY_HIDDEN_SIZE, SOCIAL_SLOT_SIZE, private, math.sqrt(1.0 / SOCIAL_SLOT_SIZE)),
+            _matrix(
+                ENTITY_HIDDEN_SIZE,
+                SOCIAL_SLOT_SIZE if outputs == TOTAL_ADAPTIVE_OUTPUTS else LEGACY_SOCIAL_SLOT_SIZE,
+                private,
+                math.sqrt(1.0 / (
+                    SOCIAL_SLOT_SIZE if outputs == TOTAL_ADAPTIVE_OUTPUTS else LEGACY_SOCIAL_SLOT_SIZE
+                )),
+            ),
             [0.0] * ENTITY_HIDDEN_SIZE,
             base_inputs=base_inputs,
             memory=[0.0] * memory_size,
@@ -204,9 +212,10 @@ class AdaptivePolicy:
                 entry["max_streak"]=max(entry.get("max_streak",0),entry["consecutive_encounters"])
                 entry["encounters"]+=1; entry["last_seen"]=step
                 entry["distance_sum"]=entry.get("distance_sum",0.0)+slot["features"][2]
+            sensor_size = len(self.entity_w[0]) - SOCIAL_EMBEDDING_SIZE
             sensors = list(slot["features"])
-            sensors += [0.0] * (SOCIAL_SENSOR_SIZE - len(sensors))
-            entity_input=sensors[:SOCIAL_SENSOR_SIZE]+(
+            sensors += [0.0] * (sensor_size - len(sensors))
+            entity_input=sensors[:sensor_size]+(
                 list(entry["embedding"]) if embeddings_enabled
                 else [0.0]*SOCIAL_EMBEDDING_SIZE
             )
@@ -378,7 +387,7 @@ class AdaptivePolicy:
            "wz":_zeros(self.memory_size,self.recurrent_inputs),"uz":_zeros(self.memory_size,self.memory_size),"bz":[0.0]*self.memory_size,
            "wr":_zeros(self.memory_size,self.recurrent_inputs),"ur":_zeros(self.memory_size,self.memory_size),"br":[0.0]*self.memory_size,
            "wh":_zeros(self.memory_size,self.recurrent_inputs),"uh":_zeros(self.memory_size,self.memory_size),"bh":[0.0]*self.memory_size,
-           "entity_w":_zeros(ENTITY_HIDDEN_SIZE,SOCIAL_SLOT_SIZE),
+           "entity_w":_zeros(ENTITY_HIDDEN_SIZE,len(self.entity_w[0])),
            "entity_b":[0.0]*ENTITY_HIDDEN_SIZE}
         social_gradients={}
         dh_future=[0.0]*self.memory_size
@@ -431,13 +440,13 @@ class AdaptivePolicy:
                     input_delta=[
                         sum(self.entity_w[row][column]*entity_delta[row]
                             for row in range(ENTITY_HIDDEN_SIZE))
-                        for column in range(SOCIAL_SLOT_SIZE)
+                        for column in range(len(self.entity_w[0]))
                     ]
                     gradient=social_gradients.setdefault(
                         entity["id"],[0.0]*SOCIAL_EMBEDDING_SIZE
                     )
                     for i in range(SOCIAL_EMBEDDING_SIZE):
-                        gradient[i]+=input_delta[SOCIAL_SENSOR_SIZE+i]
+                        gradient[i]+=input_delta[len(self.entity_w[0])-SOCIAL_EMBEDDING_SIZE+i]
             _outer_add(g["w1"],de,t["observation"])
             for i,v in enumerate(de): g["b1"][i]+=v
         scale=rate/count
