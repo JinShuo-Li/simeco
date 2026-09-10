@@ -32,6 +32,25 @@ def mutual_information(table: list[list[int]]) -> float:
     return result
 
 
+def lightweight_summary(simulation: Simulation) -> dict:
+    """Cheap periodic telemetry; neural counterfactual probes stay checkpoint-only."""
+    actions = simulation.metrics.signals + simulation.metrics.silences
+    return {
+        "step": simulation.step_count,
+        "herbivores": len(simulation.species("herbivore")),
+        "predators": len(simulation.species("predator")),
+        "mean_plant_biomass": round(
+            sum(map(sum, simulation.resources))
+            / (simulation.config.width * simulation.config.height), 4
+        ),
+        "hunts": simulation.metrics.hunts,
+        "starvation": simulation.metrics.deaths_starvation,
+        "signal_rate": round(simulation.metrics.signals / max(1, actions), 5),
+        "communication_energy_cost": round(simulation.metrics.communication_energy_cost, 5),
+        "messages_delivered": simulation.metrics.messages_delivered,
+    }
+
+
 def summary(simulation: Simulation) -> dict:
     herbivores = simulation.species("herbivore")
     predators = simulation.species("predator")

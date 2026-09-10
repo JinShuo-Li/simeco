@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
-import copy
 import json
+import tempfile
 from pathlib import Path
 
 from .reporting import summary
 from .simulation import Simulation
+from .snapshot import load_snapshot, save_snapshot
+from .synchronous import SynchronousSimulation
 
 ABLATIONS = {
     "receiver_inbox_disabled": {"inbox_enabled": False},
@@ -21,38 +23,42 @@ ABLATIONS = {
 
 
 def run_v6_validation(
-    steps: int = 2000, seeds=range(3, 8), output: str | Path | None = None
+    steps: int = 2000, seeds=range(3, 8), output: str | Path | None = None,
+    device: str = "cpu",
 ) -> dict:
     split = steps // 2
     rows = []
     for seed in seeds:
-        baseline = Simulation(
+        baseline = SynchronousSimulation(
             seed=seed, learning=True, memory=True, social_memory=True,
-            communication=False,
+            communication=False, device=device,
         )
         baseline.run(steps)
         rows.append({"condition": "v5_1_no_communication", **summary(baseline)})
 
-        trained = Simulation(
+        trained = SynchronousSimulation(
             seed=seed, learning=True, memory=True, social_memory=True,
-            communication=True,
+            communication=True, device=device,
         )
         trained.run(split)
-        branches = {"v6_communication": copy.deepcopy(trained)}
-        for name, settings in ABLATIONS.items():
-            branch = copy.deepcopy(trained)
-            for setting, value in settings.items():
-                setattr(branch, setting, value)
-            branches[name] = branch
-        for name, branch in branches.items():
-            branch.run(steps - split)
-            rows.append({"condition": name, "intervention_step": split, **summary(branch)})
+        with tempfile.TemporaryDirectory() as directory:
+            checkpoint = Path(directory) / "matched.eco.gz"
+            save_snapshot(trained, checkpoint)
+            for name, settings in (("v6_communication", {}), *ABLATIONS.items()):
+                branch = load_snapshot(checkpoint, device=device)
+                for setting, value in settings.items():
+                    setattr(branch, setting, value)
+                branch.run(steps - split)
+                branch.synchronize_policy_state()
+                rows.append({"condition": name, "intervention_step": split, **summary(branch)})
     result = {
         "version": "V6",
         "scope": "short-run evidence only",
         "steps": steps,
         "seeds": list(seeds),
         "snapshot_matched_ablation_step": split,
+        "backend": "synchronous",
+        "device": device,
         "rows": rows,
     }
     if output is not None:

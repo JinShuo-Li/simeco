@@ -11,8 +11,10 @@ from .benchmark import run_memory_benchmark
 from .social_benchmark import run_social_benchmark
 from .communication_benchmark import run_communication_benchmark
 from .simulation import Simulation
+from .synchronous import SynchronousSimulation
 from .snapshot import load_snapshot, save_snapshot
 from .v6_validation import run_v6_validation
+from .acceleration_benchmark import benchmark_suite
 
 
 def _simulation(args: argparse.Namespace) -> Simulation:
@@ -45,7 +47,22 @@ def _simulation(args: argparse.Namespace) -> Simulation:
         )
         return simulation
     mode = requested_mode or "instinct+learning+memory+social"
-    return Simulation(
+    simulation_type = (
+        Simulation
+        if getattr(args, "backend", "synchronous") == "legacy" or mode == "instinct_only"
+        else SynchronousSimulation
+    )
+    extra = {}
+    if simulation_type is SynchronousSimulation:
+        device = getattr(args, "device", "auto")
+        if device == "auto":
+            try:
+                import torch
+                device = "xpu" if torch.xpu.is_available() else "cpu"
+            except (ImportError, AttributeError):
+                device = "cpu"
+        extra["device"] = device
+    return simulation_type(
         seed=args.seed,
         learning=mode != "instinct_only",
         memory=mode in ("instinct+learning+memory", "instinct+learning+memory+social"),
@@ -65,6 +82,7 @@ def _simulation(args: argparse.Namespace) -> Simulation:
         communication_sender_identity_shuffle=(
             communication_ablation == "sender-identity-shuffled"
         ),
+        **extra,
     )
 
 
@@ -192,11 +210,29 @@ def run_communication_benchmark_command(args: argparse.Namespace) -> int:
 
 
 def run_v6_validation_command(args: argparse.Namespace) -> int:
+    device = args.device
+    if device == "auto":
+        try:
+            import torch
+            device = "xpu" if torch.xpu.is_available() else "cpu"
+        except (ImportError, AttributeError):
+            device = "cpu"
     result = run_v6_validation(
         steps=args.steps,
         seeds=range(args.seed, args.seed + args.replicates),
         output=args.output,
+        device=device,
     )
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+def run_acceleration_benchmark_command(args: argparse.Namespace) -> int:
+    result = benchmark_suite(args.steps, args.seed, not args.no_xpu)
+    if args.output:
+        destination = Path(args.output)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(result, indent=2, sort_keys=True))
     return 0
 
@@ -211,6 +247,14 @@ def parser() -> argparse.ArgumentParser:
     batch.add_argument("--load", metavar="SNAPSHOT")
     batch.add_argument("--snapshot", metavar="PATH")
     batch.add_argument("--metrics", metavar="CSV")
+    batch.add_argument(
+        "--backend", choices=("synchronous", "legacy"), default="synchronous",
+        help="tick execution model (default: synchronous batched policies)",
+    )
+    batch.add_argument(
+        "--device", choices=("auto", "cpu", "xpu"), default="auto",
+        help="resident policy tensor device for the synchronous backend",
+    )
     batch.add_argument(
         "--social-ablation",
         choices=("none","identity-shuffled","embeddings-disabled","order-reversed"),
@@ -291,7 +335,17 @@ def parser() -> argparse.ArgumentParser:
     validation.add_argument("--seed", type=int, default=3)
     validation.add_argument("--replicates", type=int, default=5)
     validation.add_argument("--output", default="experiments/v6_short_run_validation.json")
+    validation.add_argument("--device", choices=("auto", "cpu", "xpu"), default="auto")
     validation.set_defaults(func=run_v6_validation_command)
+
+    acceleration = subparsers.add_parser(
+        "acceleration-benchmark", help="compare legacy CPU and synchronous CPU/XPU ticks"
+    )
+    acceleration.add_argument("--steps", type=int, default=100)
+    acceleration.add_argument("--seed", type=int, default=3)
+    acceleration.add_argument("--no-xpu", action="store_true")
+    acceleration.add_argument("--output", metavar="JSON")
+    acceleration.set_defaults(func=run_acceleration_benchmark_command)
 
     inspect = subparsers.add_parser("inspect", help="inspect a saved ecosystem or organism")
     inspect.add_argument("snapshot")
@@ -305,6 +359,8 @@ def parser() -> argparse.ArgumentParser:
     tui.add_argument("--snapshot", default="snapshots/latest.eco.gz")
     tui.add_argument("--max-steps", type=int, help=argparse.SUPPRESS)
     tui.add_argument("--save-on-exit", action="store_true")
+    tui.add_argument("--backend", choices=("synchronous", "legacy"), default="synchronous")
+    tui.add_argument("--device", choices=("auto", "cpu", "xpu"), default="auto")
     learning = tui.add_mutually_exclusive_group()
     learning.add_argument(
         "--learning", "--social-learning", action="store_const",
