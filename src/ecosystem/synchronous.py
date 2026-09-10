@@ -156,6 +156,9 @@ class SynchronousSimulation(Simulation):
             animal.adaptive_policy.updates += 1
             animal.adaptive_policy.reward_total += reward
         updated = self.policy_store.finish_tick(self._pending_transition, outcomes, terminals)
+        if any(terminals) and not updated:
+            self.policy_store.learn_trajectory()
+            updated = True
         if updated:
             for animal in order:
                 animal.adaptive_policy.tbptt_updates += 1

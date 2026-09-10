@@ -19,9 +19,6 @@ SNAPSHOT_VERSION = 8
 def save_snapshot(simulation: Simulation, path: str | Path) -> Path:
     """Atomically save all continuation and analysis state as compressed JSON."""
     if hasattr(simulation, "policy_store"):
-        # Serialized snapshots are explicit TBPTT boundaries. This applies all
-        # buffered experience before materializing the resident tensor store.
-        simulation.policy_store.learn_trajectory()
         simulation.synchronize_policy_state()
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
@@ -52,6 +49,10 @@ def save_snapshot(simulation: Simulation, path: str | Path) -> Path:
         "metrics": simulation.metrics.to_dict(),
         "last_events": simulation.last_events,
         "rng_state": simulation.rng_state(),
+        "batched_policy_state": (
+            simulation.policy_store.snapshot_state()
+            if hasattr(simulation, "policy_store") else None
+        ),
     }
     handle, temporary_name = tempfile.mkstemp(
         prefix=f".{destination.name}.", suffix=".tmp", dir=destination.parent
@@ -124,4 +125,5 @@ def load_snapshot(path: str | Path, device: str = "cpu") -> Simulation:
             "environment": 0.0, "reporting": 0.0, "initialization": 0.0,
         }
         simulation._pending_transition = None
+        simulation.policy_store.restore_state(payload.get("batched_policy_state") or {})
     return simulation

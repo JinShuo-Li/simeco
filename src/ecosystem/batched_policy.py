@@ -86,6 +86,7 @@ class BatchedPolicyStore:
             self.capacity, len(self.head_sizes), dtype=torch.float32, device=self.device
         )
         self.trajectory: list[dict[str, Any]] = []
+        self._trajectory_start: dict[str, Any] | None = None
         self.tick = 0
         self.unroll = first.unroll
         self.gamma = first.gamma
@@ -304,6 +305,14 @@ class BatchedPolicyStore:
     ) -> dict[str, Any]:
         """Run the complete V6 adaptive and action-distribution path in one batch."""
         torch = self.torch
+        if not self.trajectory and self._trajectory_start is None:
+            self._trajectory_start = {
+                "memory": self.memory.detach().clone(),
+                "previous_actions": self.previous_actions.detach().clone(),
+                "previous_outcomes": self.previous_outcomes.detach().clone(),
+                "head_baselines": self.head_baselines.detach().clone(),
+                "tick": self.tick,
+            }
         indices = self.slots_for(animal_ids)
         observations = torch.as_tensor(observations, dtype=torch.float32, device=self.device)
         sensors = torch.as_tensor(entity_sensors, dtype=torch.float32, device=self.device)
@@ -391,6 +400,9 @@ class BatchedPolicyStore:
             "ids": animal_ids[:], "indices": indices, "probabilities": probabilities,
             "preferences": preferences, "embeddings": embeddings, "entity_mask": mask,
             "embedding_references": embedding_references,
+            "observations": observations.detach(), "entity_sensors": sensors.detach(),
+            "entity_embedding_values": embeddings.detach(),
+            "instinct_preferences": instinct.detach(), "use_memory": use_memory,
         }
 
     def record_actions(self, transition: dict[str, Any], actions) -> None:
@@ -478,7 +490,76 @@ class BatchedPolicyStore:
         self.previous_actions = self.previous_actions.detach()
         self.previous_outcomes = self.previous_outcomes.detach()
         self.trajectory.clear()
+        self._trajectory_start = None
         self.retired_slots.clear()
+
+    def snapshot_state(self) -> dict[str, Any]:
+        def values(tensor):
+            return tensor.detach().cpu().tolist()
+        if not self.trajectory:
+            return {"trajectory": [], "tick": self.tick}
+        start = self._trajectory_start
+        return {
+            "tick": self.tick,
+            "start": {
+                "memory": values(start["memory"]),
+                "previous_actions": values(start["previous_actions"]),
+                "previous_outcomes": values(start["previous_outcomes"]),
+                "head_baselines": values(start["head_baselines"]),
+                "tick": start["tick"],
+            },
+            "trajectory": [{
+                "ids": transition["ids"],
+                "observations": values(transition["observations"]),
+                "entity_sensors": values(transition["entity_sensors"]),
+                "entity_embeddings": values(transition["entity_embedding_values"]),
+                "entity_mask": values(transition["entity_mask"]),
+                "instinct_preferences": values(transition["instinct_preferences"]),
+                "actions": values(transition["actions"]),
+                "outcomes": values(transition["outcomes"]),
+                "terminal": values(transition["terminal"]),
+                "embedding_identities": [
+                    [None if reference is None else reference[1] for reference in row]
+                    for row in (transition.get("embedding_references") or [])
+                ],
+                "use_memory": transition["use_memory"],
+            } for transition in self.trajectory],
+        }
+
+    def restore_state(self, state: dict[str, Any]) -> None:
+        torch = self.torch
+        transitions = state.get("trajectory", [])
+        self.tick = state.get("tick", 0)
+        if not transitions:
+            return
+        start = state["start"]
+        self.memory = torch.tensor(start["memory"], dtype=torch.float32, device=self.device)
+        self.previous_actions = torch.tensor(
+            start["previous_actions"], dtype=torch.long, device=self.device
+        )
+        self.previous_outcomes = torch.tensor(
+            start["previous_outcomes"], dtype=torch.float32, device=self.device
+        )
+        self.head_baselines = torch.tensor(
+            start["head_baselines"], dtype=torch.float32, device=self.device
+        )
+        self.tick = start["tick"]
+        self._trajectory_start = None
+        for saved in transitions:
+            references = []
+            for animal_id, identities in zip(saved["ids"], saved["embedding_identities"]):
+                policy = self.animals[animal_id].adaptive_policy
+                references.append([
+                    None if identity is None else (policy, identity) for identity in identities
+                ])
+            transition = self.forward(
+                saved["ids"], saved["observations"], saved["entity_sensors"],
+                saved["entity_embeddings"], saved["entity_mask"],
+                saved["instinct_preferences"], references, saved["use_memory"],
+            )
+            self.record_actions(transition, saved["actions"])
+            self.finish_tick(transition, saved["outcomes"], saved["terminal"])
+        self.tick = state.get("tick", self.tick)
 
     def synchronize(self) -> None:
         if self.device.type == "xpu":

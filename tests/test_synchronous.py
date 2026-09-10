@@ -60,10 +60,12 @@ class SynchronousSimulationTests(unittest.TestCase):
     def test_snapshot_continuation_is_deterministic(self):
         original = SynchronousSimulation(seed=12, device="cpu")
         original.run(3)
+        self.assertEqual(len(original.policy_store.trajectory), 3)
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "sync.eco.gz"
             save_snapshot(original, path)
             restored = load_snapshot(path)
+            self.assertEqual(len(restored.policy_store.trajectory), 3)
             original.run(4)
             restored.run(4)
         original.synchronize_policy_state()
