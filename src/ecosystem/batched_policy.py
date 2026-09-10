@@ -446,6 +446,12 @@ class BatchedPolicyStore:
         future = torch.zeros(
             self.capacity, len(self.head_sizes), dtype=torch.float32, device=self.device
         )
+        counts = torch.zeros(self.capacity, dtype=torch.float32, device=self.device)
+        for transition in self.trajectory:
+            counts.index_add_(
+                0, transition["indices"],
+                torch.ones(len(transition["ids"]), dtype=torch.float32, device=self.device),
+            )
         losses = []
         for transition in reversed(self.trajectory):
             indices = transition["indices"]
@@ -455,8 +461,13 @@ class BatchedPolicyStore:
             future = future.index_copy(0, indices, returns)
             advantage = (returns - self.head_baselines.index_select(0, indices)).clamp(-4.0, 4.0)
             advantage = torch.where(advantage < 0.0, advantage * 1.8, advantage)
-            losses.append(-(transition["log_probabilities"] * advantage.detach()).sum())
-        loss = torch.stack(losses).sum() / max(1, sum(len(t["ids"]) for t in self.trajectory))
+            per_animal = -(transition["log_probabilities"] * advantage.detach()).sum(1)
+            losses.append(
+                (per_animal / counts.index_select(0, indices).clamp_min(1.0)).sum()
+            )
+        # Parameter ownership makes this a sum of independent per-animal losses;
+        # each owner's trajectory is normalized without population-size dilution.
+        loss = torch.stack(losses).sum()
         loss.backward()
         for transition in self.trajectory:
             gradient = transition["embeddings"].grad
@@ -464,7 +475,10 @@ class BatchedPolicyStore:
             if gradient is None or references is None:
                 continue
             gradient = gradient.detach().cpu().tolist()
-            for row, row_references in zip(gradient, references):
+            rates = self.learning_rates.index_select(
+                0, transition["indices"]
+            ).detach().cpu().tolist()
+            for row, row_references, rate in zip(gradient, references, rates):
                 for values, reference in zip(row, row_references):
                     if reference is None:
                         continue
@@ -473,7 +487,7 @@ class BatchedPolicyStore:
                     if entry is None:
                         continue
                     entry["embedding"] = [
-                        max(-2.0, min(2.0, value - 0.03 * delta))
+                        max(-2.0, min(2.0, value - rate * delta))
                         for value, delta in zip(entry["embedding"], values)
                     ]
         with torch.no_grad():

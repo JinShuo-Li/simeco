@@ -1,0 +1,60 @@
+{
+  "date": "2026-09-10",
+  "scope": "neural batching path; spatial environment remains Python",
+  "precision": "FP32",
+  "seed": 3,
+  "warmup_ticks": 8,
+  "measured_ticks": 100,
+  "population_range_approx": [64, 77],
+  "hardware": {
+    "cpu_environment": "WSL2 Ubuntu 24.04",
+    "xpu": "Intel Arc 140T GPU",
+    "torch": "2.14.0+xpu"
+  },
+  "runs": {
+    "legacy_cpu": {
+      "seconds": 5.404011,
+      "ticks_per_second": 18.5048,
+      "breakdown_seconds": {
+        "observation": 0.210175,
+        "policy_forward": 2.383047,
+        "learning": 2.537618,
+        "environment": 0.264800,
+        "reporting": 0.008399
+      }
+    },
+    "synchronous_cpu": {
+      "seconds": 1.258426,
+      "ticks_per_second": 79.4644,
+      "breakdown_seconds": {
+        "observation": 0.407917,
+        "policy_forward": 0.187299,
+        "learning": 0.224934,
+        "environment": 0.433472,
+        "reporting": 0.004409
+      }
+    },
+    "synchronous_xpu": {
+      "seconds": 4.658340,
+      "ticks_per_second": 21.4669,
+      "breakdown_seconds": {
+        "observation": 0.527021,
+        "policy_forward": 2.379834,
+        "learning": 1.082862,
+        "environment": 0.662420,
+        "reporting": 0.005546
+      }
+    }
+  },
+  "speedup_vs_legacy_cpu": {
+    "synchronous_cpu": 4.2943,
+    "synchronous_xpu": 1.1601
+  },
+  "reproducibility": {
+    "xpu_seed": 17,
+    "ticks": 20,
+    "duplicate_state_sha256": "5c48f6feaa905c15da802ecdabbc44a639514bc16d21ac2826bd85877c64bcaf",
+    "exact_match": true
+  },
+  "interpretation": "At this small population, eager XPU is kernel-launch-bound. Synchronous CPU is the fastest measured backend. Spatial tensorization was not attempted because policy batching was implemented first as requested."
+}

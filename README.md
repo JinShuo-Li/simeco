@@ -1,6 +1,6 @@
 # simeco V6 — Emergent Communication
 
-A dependency-free spatial predator–prey ecosystem for studying whether costly,
+A small spatial predator–prey ecosystem for studying whether costly,
 meaning-free signals become useful to individually learning animals. V6 keeps
 V5.1 embodiment, temporal learning, ecology, instincts, shared entity encoding,
 private identity memory, and the four physical action heads.
@@ -46,9 +46,20 @@ conda env create -f environment.yml
 conda activate eco
 python -m pip install -e .
 
-# V6 and the paired V5.1 control
+# Optional Intel GPU backend (after installing Intel's current WSL GPU runtime)
+python -m pip install torch --index-url https://download.pytorch.org/whl/xpu
+
+# Synchronous batching is the default; auto selects XPU when it is available.
 ecosystem run --steps 2000 --seed 3 --social-learning
+ecosystem run --steps 2000 --seed 3 --social-learning --device cpu
 ecosystem run --steps 2000 --seed 3 --social-learning --no-communication
+
+# Retained sequential within-tick reference semantics
+ecosystem run --steps 2000 --seed 3 --backend legacy
+
+# Profile legacy CPU, synchronous CPU, and synchronous XPU
+ecosystem acceleration-benchmark --steps 100 --seed 3 \
+  --output experiments/synchronous_backend_benchmark.json
 
 # Controlled hidden-cue benchmark, seeds 3–7
 ecosystem communication-benchmark --seed 3 --replicates 5 \
@@ -56,6 +67,7 @@ ecosystem communication-benchmark --seed 3 --replicates 5 \
 
 # Paired short-run study and snapshot-matched interventions, seeds 3–7
 ecosystem v6-validate --steps 2000 --seed 3 --replicates 5 \
+  --device xpu \
   --output experiments/v6_short_run_validation.json
 
 # Individual intervention from a snapshot
@@ -74,6 +86,31 @@ The requested ecosystem validation in this iteration is exactly 2,000 steps for
 every consecutive seed 3–7. These runs are short-run evidence only; they cannot
 establish stable conventions, long-term communication, or evolutionary
 equilibrium.
+
+## Synchronous accelerated backend
+
+The intended backend freezes tick-t state, builds every living animal's
+observation, runs one batched adaptive-policy operation, samples all six heads,
+and only then resolves physical actions in a seeded deterministic order.
+Messages transmitted during resolution cannot enter an observation until the
+next tick. `--backend legacy` retains V6's original sequential within-tick
+execution for regression.
+
+The tensor store stacks each animal's independently owned FP32 entity encoder,
+ecological encoder, GRU, physical heads, and communication heads along a slot
+dimension. Parameters, recurrent state, action/outcome context, and TBPTT state
+remain resident on the selected device. Births copy a mutated parent's policy
+into a clean slot; deaths mask and retire slots; capacity grows at an unroll
+boundary. No parameter is shared between animals.
+
+Reporting now has a lightweight periodic summary. Neural counterfactual and
+communication/social diagnostics remain available in the full summary and run
+only at experiment checkpoints. The 100-tick seed-3 hardware measurements are
+recorded in `experiments/synchronous_backend_benchmark.json`. On this Arc 140T,
+eager XPU execution is faster than legacy CPU but slower than synchronous CPU
+at a population of roughly 64–77 because many small XPU kernels are launch
+bound. FP32 graph compilation was not enabled because its startup cost was
+several minutes in this environment.
 
 ## Ecology and learning boundary
 
@@ -136,5 +173,6 @@ script -q -c 'TERM=xterm ecosystem tui --seed 3 --max-steps 20' /tmp/eco-tui.log
 Tests cover silence, increasing range/cost, inbox expiry, feature privacy,
 arbitrary permutation, controlled learning, blocked channels, instinct isolation,
 offspring reset, entity-order invariance, and deterministic V6 continuation, in
-addition to the V5.1 perception, ecology, controller, temporal, and identity
-coverage.
+addition to frozen observations, next-tick signal delivery, independent batched
+parameter ownership, CPU/XPU reproducibility, partially filled batched-TBPTT
+snapshot restoration, and the V5.1 regression coverage.

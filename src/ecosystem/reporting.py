@@ -52,6 +52,8 @@ def lightweight_summary(simulation: Simulation) -> dict:
 
 
 def summary(simulation: Simulation) -> dict:
+    if hasattr(simulation, "synchronize_policy_state"):
+        simulation.synchronize_policy_state()
     herbivores = simulation.species("herbivore")
     predators = simulation.species("predator")
     steps = max(1, simulation.step_count)
