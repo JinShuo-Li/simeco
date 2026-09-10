@@ -187,6 +187,10 @@ class Simulation:
         predators = self.species("predator")
         order = list(self.organisms.values())
         self.rng.shuffle(order)
+        preselected = (
+            self._preselect_actions(order, herbivores, predators)
+            if hasattr(self, "_preselect_actions") else None
+        )
         occupied: dict[tuple[int, int], int] = defaultdict(int)
         for animal in order:
             occupied[(animal.x, animal.y)] += 1
@@ -198,42 +202,55 @@ class Simulation:
         received_tokens: dict[int, list[int]] = {}
         for animal in order:
             cfg = self.config.herbivore if animal.species == "herbivore" else self.config.predator
-            observation = self.observe(animal, herbivores, predators)
-            instinct_preferences = animal.instinct.preferences(observation)
             previous_action = animal.arbiter.last_actions
-            social_slots = visible_individuals(animal, order, self.config, cfg)
-            message_slots = self._message_slots(animal, cfg)
-            if self.social_identity_shuffle and len(social_slots)>1:
-                identities=[slot["id"] for slot in social_slots]
-                social_slots=[
-                    {**slot,"id":identities[(index+1)%len(identities)]}
-                    for index,slot in enumerate(social_slots)
-                ]
-            if self.reverse_entity_order:
-                social_slots=list(reversed(social_slots))
-            combined_slots = social_slots + message_slots
-            adaptive_preferences = (
-                animal.adaptive_policy.advance(
-                    observation,
-                    use_memory=self.memory,
-                    social_slots=combined_slots if self.social_memory else None,
-                    social_enabled=self.social_memory,
-                    step=self.step_count,
-                    social_embeddings_enabled=self.social_embeddings,
+            if preselected is None:
+                observation = self.observe(animal, herbivores, predators)
+                instinct_preferences = animal.instinct.preferences(observation)
+                social_slots = visible_individuals(animal, order, self.config, cfg)
+                message_slots = self._message_slots(animal, cfg)
+                if self.social_identity_shuffle and len(social_slots)>1:
+                    identities=[slot["id"] for slot in social_slots]
+                    social_slots=[
+                        {**slot,"id":identities[(index+1)%len(identities)]}
+                        for index,slot in enumerate(social_slots)
+                    ]
+                if self.reverse_entity_order:
+                    social_slots=list(reversed(social_slots))
+                combined_slots = social_slots + message_slots
+                adaptive_preferences = (
+                    animal.adaptive_policy.advance(
+                        observation,
+                        use_memory=self.memory,
+                        social_slots=combined_slots if self.social_memory else None,
+                        social_enabled=self.social_memory,
+                        step=self.step_count,
+                        social_embeddings_enabled=self.social_embeddings,
+                    )
+                    if self.learning
+                    else [0.0] * (TOTAL_ADAPTIVE_OUTPUTS if self.communication else TOTAL_ACTION_OUTPUTS)
                 )
-                if self.learning
-                else [0.0] * (TOTAL_ADAPTIVE_OUTPUTS if self.communication else TOTAL_ACTION_OUTPUTS)
-            )
-            action, combined_probabilities = animal.arbiter.choose(
-                instinct_preferences,
-                adaptive_preferences,
-                adaptive_enabled=self.learning,
-                rng=self.rng,
-            )
+                action, combined_probabilities = animal.arbiter.choose(
+                    instinct_preferences,
+                    adaptive_preferences,
+                    adaptive_enabled=self.learning,
+                    rng=self.rng,
+                )
+                communication, communication_probabilities = choose_communication(
+                    adaptive_preferences, self.rng, self.learning and self.communication
+                )
+            else:
+                selected = preselected[animal.id]
+                previous_action = selected["previous_action"]
+                observation = selected["observation"]
+                instinct_preferences = selected["instinct"]
+                social_slots = selected["social_slots"]
+                message_slots = selected["message_slots"]
+                adaptive_preferences = selected["adaptive_preferences"]
+                action = selected["action"]
+                combined_probabilities = selected["physical_probabilities"]
+                communication = selected["communication"]
+                communication_probabilities = selected["communication_probabilities"]
             decisions[animal.id] = action
-            communication, communication_probabilities = choose_communication(
-                adaptive_preferences, self.rng, self.learning and self.communication
-            )
             animal.communication = communication
             communications[animal.id] = communication
             received_tokens[animal.id] = [slot["token"] for slot in message_slots]
@@ -270,7 +287,7 @@ class Simulation:
                 if previous_action[1] == action.effort:
                     self.metrics.effort_repeats += 1
             animal.instinct.decisions += 1
-            if self.learning:
+            if self.learning and preselected is None:
                 animal.adaptive_policy.record_decision(
                     observation,
                     action.indices() + communication.indices(),
@@ -444,6 +461,8 @@ class Simulation:
             ):
                 animal.reproduction_progress -= 1.0
                 animal.energy -= cfg.reproduce_cost
+                if preselected is not None:
+                    self._synchronize_parent_for_offspring(animal)
                 child_policy = animal.adaptive_policy.offspring(
                     self.rng, cfg.mutation_rate, cfg.mutation_scale
                 )
@@ -486,12 +505,13 @@ class Simulation:
                 credited_rewards = head_rewards.get(animal.id)
                 if self.communication and credited_rewards is not None:
                     credited_rewards = credited_rewards + [reward, reward]
-                animal.adaptive_policy.learn(
-                    reward,
-                    cfg.learning_rate,
-                    credited_rewards,
-                    terminal=animal.id in dead,
-                )
+                if preselected is None:
+                    animal.adaptive_policy.learn(
+                        reward,
+                        cfg.learning_rate,
+                        credited_rewards,
+                        terminal=animal.id in dead,
+                    )
                 self.metrics.learning_updates += 1
             if animal.species == "herbivore":
                 self.metrics.reward_herbivore += reward
@@ -502,6 +522,8 @@ class Simulation:
             self.organisms.pop(animal_id, None)
         for child in newborns:
             self.organisms[child.id] = child
+        if preselected is not None:
+            self._finish_batched_step(preselected, order, rewards, head_rewards, dead, newborns)
         self.last_events["births"] = len(newborns)
         self.last_events["deaths"] += len(dead)
         if self.step_count % self.config.history_interval == 0:

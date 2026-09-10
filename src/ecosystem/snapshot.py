@@ -18,11 +18,17 @@ SNAPSHOT_VERSION = 8
 
 def save_snapshot(simulation: Simulation, path: str | Path) -> Path:
     """Atomically save all continuation and analysis state as compressed JSON."""
+    if hasattr(simulation, "policy_store"):
+        # Serialized snapshots are explicit TBPTT boundaries. This applies all
+        # buffered experience before materializing the resident tensor store.
+        simulation.policy_store.learn_trajectory()
+        simulation.synchronize_policy_state()
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "format": SNAPSHOT_FORMAT,
         "version": SNAPSHOT_VERSION,
+        "backend": getattr(simulation, "backend", "legacy"),
         "step": simulation.step_count,
         "seed": simulation.seed,
         "learning": simulation.learning,
@@ -64,7 +70,7 @@ def save_snapshot(simulation: Simulation, path: str | Path) -> Path:
     return destination
 
 
-def load_snapshot(path: str | Path) -> Simulation:
+def load_snapshot(path: str | Path, device: str = "cpu") -> Simulation:
     with gzip.open(path, "rt", encoding="utf-8") as handle:
         payload = json.load(handle)
     if payload.get("format") != SNAPSHOT_FORMAT:
@@ -72,7 +78,11 @@ def load_snapshot(path: str | Path) -> Simulation:
     if payload.get("version") != SNAPSHOT_VERSION:
         raise ValueError(f"unsupported snapshot version: {payload.get('version')}")
 
-    simulation = Simulation.__new__(Simulation)
+    if payload.get("backend", "legacy") == "synchronous":
+        from .synchronous import SynchronousSimulation
+        simulation = SynchronousSimulation.__new__(SynchronousSimulation)
+    else:
+        simulation = Simulation.__new__(Simulation)
     simulation.config = WorldConfig.from_dict(payload["config"])
     simulation.seed = payload["seed"]
     simulation.learning = payload["learning"]
@@ -99,4 +109,19 @@ def load_snapshot(path: str | Path) -> Simulation:
     simulation.last_events = payload["last_events"]
     simulation.rng = __import__("random").Random()
     simulation.set_rng_state(payload["rng_state"])
+    if payload.get("backend", "legacy") == "synchronous":
+        from .batched_policy import BatchedPolicyStore
+        simulation.device = device
+        simulation.policy_store = BatchedPolicyStore(
+            simulation.organisms.values(), device=device, capacity=max(128, len(animals) * 2),
+            learning_rates={
+                "herbivore": simulation.config.herbivore.learning_rate,
+                "predator": simulation.config.predator.learning_rate,
+            },
+        )
+        simulation.timings = {
+            "observation": 0.0, "policy_forward": 0.0, "learning": 0.0,
+            "environment": 0.0, "reporting": 0.0, "initialization": 0.0,
+        }
+        simulation._pending_transition = None
     return simulation
